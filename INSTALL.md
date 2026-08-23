@@ -20,6 +20,20 @@ Diese Anleitung bringt das CORSAIR XENEON EDGE unter macOS zum Laufen —
   - **Daten**: das USB-Kabel → darüber laufen Touchscreen und die
     Geräteabfrage. Ohne dieses Kabel gibt es Bild, aber keinen Touch.
 
+## 1a. Andere Helfer-Tools: Was muss vorher weg?
+
+**In der Regel nichts.** Die Ausnahmen:
+
+| Tool | Konflikt? | Empfehlung |
+|---|---|---|
+| **ymlaine/TouchscreenDriver** (älterer Edge-Touch-Treiber) | **Ja** — liest denselben Touch-Controller und injiziert ebenfalls Klicks → Doppelklicks, springender Cursor | Vorher deinstallieren: `launchctl unload ~/Library/LaunchAgents/com.ymlaine.touchscreendriver.plist` und die Plist/Skripte löschen |
+| **MonitorControl / Lunar / BetterDisplay / m1ddc** | Nur weich — gleicher DDC/CI-Kanal für Helligkeit | Können bleiben; nur die *automatische* Helligkeitsregelung für das Edge-Display dort ausschalten, sonst überschreiben sich die Werte gegenseitig |
+| **iCUE für macOS** (für Tastatur/Maus) | Nein für Touch/Dashboard. Hält iCUE das Corsair-HID exklusiv offen, liefert `xeneonctl probe`/„Gerät abfragen“ evtl. nichts | Kann bleiben; bei leerer HID-Abfrage iCUE kurz beenden |
+| **Karabiner-Elements, BetterTouchTool u. Ä.** | Praktisch nie (greifen Tastatur/Trackpad ab, nicht den Digitizer) | Nur im Verdachtsfall testweise beenden |
+
+Eine ältere Version **dieses** Projekts vorher sauber entfernen
+(siehe Abschnitt 6), damit nicht zwei LaunchAgents parallel laufen.
+
 ## 2. Bauen und installieren (ohne Entwicklerkonto)
 
 Es wird **kein** Apple-Developer-Account benötigt:
