@@ -10,6 +10,7 @@ let package = Package(
     products: [
         .library(name: "XeneonEdgeKit", targets: ["XeneonEdgeKit"]),
         .executable(name: "XeneonEdgeApp", targets: ["XeneonEdgeApp"]),
+        .executable(name: "ClaudeUsageWidget", targets: ["ClaudeUsageWidget"]),
         .executable(name: "xeneonctl", targets: ["xeneonctl"]),
     ],
     targets: [
@@ -25,6 +26,14 @@ let package = Package(
         ),
         .executableTarget(
             name: "XeneonEdgeApp",
+            dependencies: ["XeneonEdgeKit"],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("SwiftUI"),
+            ]
+        ),
+        .executableTarget(
+            name: "ClaudeUsageWidget",
             dependencies: ["XeneonEdgeKit"],
             linkerSettings: [
                 .linkedFramework("AppKit"),

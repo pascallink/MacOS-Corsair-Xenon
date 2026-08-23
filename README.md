@@ -21,8 +21,13 @@ liefert diese Funktionen nativ für macOS:
 ## Aufbau
 
 - **`XeneonEdgeKit`** — die Treiber-Bibliothek: HID-Touch-Treiber,
-  Bragi-Vendor-HID-Transport, DDC/CI, Systemsensoren, Medien/Audio.
+  Bragi-Vendor-HID-Transport, DDC/CI, Systemsensoren, Medien/Audio,
+  Claude-Code-Nutzungsparser.
 - **`XeneonEdgeApp`** — Menüleisten-App mit dem Touch-Dashboard.
+- **`ClaudeUsageWidget`** — rahmenloses Widget für das Edge, das die lokale
+  Claude-Code-Nutzung anzeigt (Token im 5-h-Fenster, Reset-Countdown,
+  Kosten-Schätzung, aktives Modell) →
+  [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
 - **`xeneonctl`** — Kommandozeilenwerkzeug (probe, brightness, ddc, touch-monitor).
 
 Technische Details zum Gerät und Protokoll: [PROTOCOL-MACOS.md](PROTOCOL-MACOS.md).
