@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    name: swift build & test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build (debug)
+        run: swift build -v
+      - name: Run unit tests
+        run: swift test -v
+      - name: Build (release)
+        run: swift build -c release
+      - name: Bundle app
+        run: ./Scripts/bundle-app.sh release
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XeneonEdge-macOS
+          path: |
+            dist/XeneonEdge.app
+            dist/xeneonctl

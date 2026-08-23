@@ -1,0 +1,162 @@
+// XeneonEdge for macOS — command line tool
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// xeneonctl — probe, picture control and touch diagnostics for the
+// CORSAIR XENEON EDGE without the GUI app.
+
+import AppKit
+import Foundation
+import XeneonEdgeKit
+
+let usage = """
+xeneonctl — CORSAIR XENEON EDGE control for macOS
+
+USAGE:
+  xeneonctl probe                     Detect the Edge (display, touch, HID) and print details
+  xeneonctl firmware                  Query the vendor HID interface (Bragi GET 0x13)
+  xeneonctl brightness <0-100>        Set panel brightness via DDC/CI
+  xeneonctl brightness                Read panel brightness via DDC/CI
+  xeneonctl contrast <0-100>          Set panel contrast via DDC/CI
+  xeneonctl power <on|standby>        Panel power via DDC/CI
+  xeneonctl ddc get <vcp-hex>         Read a raw VCP feature (e.g. 0x10)
+  xeneonctl ddc set <vcp-hex> <value> Write a raw VCP feature
+  xeneonctl touch-monitor             Print live touch events (Ctrl+C to stop)
+
+OPTIONS:
+  --display <n>   Index of the external display I2C service (default 0)
+"""
+
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(1)
+}
+
+var arguments = Array(CommandLine.arguments.dropFirst())
+var displayIndex = 0
+if let optIndex = arguments.firstIndex(of: "--display"), optIndex + 1 < arguments.count {
+    displayIndex = Int(arguments[optIndex + 1]) ?? 0
+    arguments.removeSubrange(optIndex...(optIndex + 1))
+}
+
+guard let command = arguments.first else {
+    print(usage)
+    exit(0)
+}
+
+func openDDC() -> DDCControl {
+    do {
+        return try DDCControl.openExternalDisplay(index: displayIndex)
+    } catch {
+        fail("DDC: \(error)")
+    }
+}
+
+switch command {
+case "probe":
+    print("== CORSAIR XENEON EDGE — probe ==")
+
+    if let display = EdgeDisplay.find() {
+        let b = display.bounds
+        print("Display   : \(display.localizedName) (id \(display.displayID))")
+        print("Bounds    : \(Int(b.width))x\(Int(b.height)) at (\(Int(b.minX)), \(Int(b.minY)))")
+    } else {
+        print("Display   : not found (connect via USB-C DP-Alt-Mode or HDMI)")
+    }
+
+    if let device = BragiDevice.find() {
+        print("Vendor HID: \(device.product) / \(device.manufacturer) / SN \(device.serialNumber)")
+    } else {
+        print("Vendor HID: 1b1c:1d0d not found")
+    }
+
+    print("DDC       : \(DDCControl.externalDisplayCount()) external display I2C service(s)")
+
+case "firmware":
+    guard let device = BragiDevice.find() else {
+        fail("vendor HID interface 1b1c:1d0d not found")
+    }
+    do {
+        try device.open()
+        let data = try device.probeFirmware()
+        print("GET 0x13 response: \(BragiFrame.hexDump(Array(data.prefix(32))))")
+        device.close()
+    } catch {
+        fail("\(error)")
+    }
+
+case "brightness":
+    let ddc = openDDC()
+    if arguments.count >= 2 {
+        guard let value = Int(arguments[1]), (0...100).contains(value) else {
+            fail("brightness must be 0-100")
+        }
+        do { try ddc.setBrightness(percent: value); print("brightness set to \(value)%") }
+        catch { fail("\(error)") }
+    } else {
+        do { print("brightness: \(try ddc.brightness())%") }
+        catch { fail("\(error)") }
+    }
+
+case "contrast":
+    guard arguments.count >= 2, let value = Int(arguments[1]), (0...100).contains(value) else {
+        fail("usage: xeneonctl contrast <0-100>")
+    }
+    do { try openDDC().setContrast(percent: value); print("contrast set to \(value)%") }
+    catch { fail("\(error)") }
+
+case "power":
+    guard arguments.count >= 2 else { fail("usage: xeneonctl power <on|standby>") }
+    do { try openDDC().setPower(on: arguments[1] == "on"); print("power: \(arguments[1])") }
+    catch { fail("\(error)") }
+
+case "ddc":
+    guard arguments.count >= 3 else { fail("usage: xeneonctl ddc get|set <vcp-hex> [value]") }
+    let hex = arguments[2].replacingOccurrences(of: "0x", with: "")
+    guard let code = UInt8(hex, radix: 16) else { fail("bad VCP code: \(arguments[2])") }
+    let ddc = openDDC()
+    switch arguments[1] {
+    case "get":
+        do {
+            let v = try ddc.read(code)
+            print(String(format: "VCP 0x%02X: current=%d max=%d", code, v.current, v.maximum))
+        } catch { fail("\(error)") }
+    case "set":
+        guard arguments.count >= 4, let value = UInt16(arguments[3]) else {
+            fail("usage: xeneonctl ddc set <vcp-hex> <value>")
+        }
+        do { try ddc.write(code, value: value); print(String(format: "VCP 0x%02X = %d", code, value)) }
+        catch { fail("\(error)") }
+    default:
+        fail("usage: xeneonctl ddc get|set <vcp-hex> [value]")
+    }
+
+case "touch-monitor":
+    final class Monitor: TouchDriverDelegate {
+        func touchDriver(_ driver: TouchDriver, deviceConnected connected: Bool) {
+            print(connected ? "touch controller connected (27c0:0859)"
+                            : "touch controller disconnected")
+        }
+        func touchDriver(_ driver: TouchDriver, didTouchAt point: CGPoint, down: Bool) {
+            print("\(down ? "DOWN" : "UP  ") x=\(Int(point.x)) y=\(Int(point.y))")
+        }
+    }
+    let driver = TouchDriver()
+    let monitor = Monitor()
+    driver.delegate = monitor
+    driver.display = EdgeDisplay.find()
+    // Diagnostics only: never inject events from the CLI.
+    driver.injectionEnabled = false
+    if driver.display == nil {
+        print("note: Edge display not found; printing panel-native coordinates")
+    }
+    print("monitoring touches — Ctrl+C to stop")
+    driver.start(runLoop: CFRunLoopGetCurrent())
+    CFRunLoopRun()
+
+case "help", "--help", "-h":
+    print(usage)
+
+default:
+    print(usage)
+    fail("unknown command: \(command)")
+}
