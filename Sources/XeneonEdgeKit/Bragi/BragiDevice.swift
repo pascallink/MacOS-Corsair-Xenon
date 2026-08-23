@@ -13,6 +13,7 @@ public enum BragiError: Error, CustomStringConvertible {
     case writeFailed(IOReturn)
     case timeout
     case badResponse
+    case writesDisabled(UInt8)
 
     public var description: String {
         switch self {
@@ -21,13 +22,34 @@ public enum BragiError: Error, CustomStringConvertible {
         case .writeFailed(let r): return String(format: "failed to write HID report (IOReturn 0x%08X)", r)
         case .timeout: return "device did not answer in time"
         case .badResponse: return "device answered, but the response did not echo the command"
+        case .writesDisabled(let cmd):
+            return String(format: "blocked state-changing command 0x%02X: " +
+                "only read commands are allowed (write gate; see PROTOCOL-MACOS.md)", cmd)
         }
     }
 }
 
 /// Synchronous request/response channel to the Edge's vendor HID interface.
 /// All calls are blocking; use from a background queue.
+///
+/// FIRMWARE SAFETY — write gate:
+/// This transport refuses to transmit anything but the read-only commands
+/// GET (0x02) and block-read (0x08) unless `dangerouslyAllowWrites` is set
+/// explicitly. Neither the app nor the CLI ever set it. Firmware-update /
+/// flash commands are not implemented anywhere in this codebase, so a bad
+/// GET at worst returns garbage — it cannot alter device state.
 public final class BragiDevice {
+    /// Payload command bytes that never change device state.
+    private static let readOnlyCommands: Set<UInt8> = [BragiCommand.get, 0x08]
+
+    /// Off by default. Must be set knowingly by a developer to send SET /
+    /// mode-switch / endpoint commands; nothing in this project sets it.
+    public var dangerouslyAllowWrites = false
+
+    /// True when the frame only reads state (passes the write gate).
+    public static func isReadOnly(_ frame: BragiFrame) -> Bool {
+        readOnlyCommands.contains(frame.payload.first ?? 0)
+    }
     private let device: IOHIDDevice
     // Stable buffer handed to IOKit for incoming reports; must outlive the
     // registration, hence manually managed.
@@ -114,7 +136,12 @@ public final class BragiDevice {
 
     /// Sends one 64-byte frame. The report id byte is passed to IOKit as the
     /// report number; the remaining 63 bytes are the report data.
+    /// Frames whose command byte is not read-only are rejected unless
+    /// `dangerouslyAllowWrites` was set (firmware-safety write gate).
     public func send(_ frame: BragiFrame) throws {
+        guard Self.isReadOnly(frame) || dangerouslyAllowWrites else {
+            throw BragiError.writesDisabled(frame.payload.first ?? 0)
+        }
         let data = Array(frame.bytes.dropFirst()) // strip report id byte
         let result = data.withUnsafeBufferPointer { buf in
             IOHIDDeviceSetReport(

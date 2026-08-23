@@ -51,6 +51,23 @@ final class BragiFrameTests: XCTestCase {
     }
 }
 
+final class WriteGateTests: XCTestCase {
+    func testReadCommandsPassTheGate() {
+        XCTAssertTrue(BragiDevice.isReadOnly(BragiFrame.get(property: 0x13)))
+        XCTAssertTrue(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.read)))
+    }
+
+    func testStateChangingCommandsAreBlocked() {
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.set(property: 0x03, value: [0x00, 0x02])))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.softwareMode)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.hardwareMode)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.openEndpoint)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.closeEndpoint)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw([0xFF])))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw([])))
+    }
+}
+
 final class ConfigTests: XCTestCase {
     func testConfigRoundTrip() throws {
         var config = AppConfig()

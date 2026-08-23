@@ -27,10 +27,27 @@ liefert diese Funktionen nativ für macOS:
 
 Technische Details zum Gerät und Protokoll: [PROTOCOL-MACOS.md](PROTOCOL-MACOS.md).
 
+## Sicherheit: Firmware & Gerät
+
+- **Keine Firmware-Gefahr:** Der Code enthält keinerlei Firmware-/Flash-Kommandos,
+  und der HID-Transport hat ein **Write-Gate**: An das Vendor-Interface werden
+  ausschließlich lesende Kommandos (GET/Block-Read) durchgelassen — alles andere
+  wird vom Transport selbst abgewiesen und ist per Unit-Test abgesichert.
+- Helligkeit & Co. laufen über **Standard-DDC/CI** (dieselben Befehle wie das
+  Monitor-OSD) und sind jederzeit am Gerät zurücksetzbar.
+- **Kein Apple-Entwicklerkonto nötig:** reine Userspace-App mit Ad-hoc-Signatur,
+  keine Kernel-/System-Extension.
+
+Details und die vollständige Risikoübersicht: **[INSTALL.md](INSTALL.md)**.
+
 ## Installation
 
+**Ausführliche Schritt-für-Schritt-Anleitung inkl. Berechtigungen,
+Fehlersuche und Deinstallation: [INSTALL.md](INSTALL.md).** Kurzfassung:
+
 Voraussetzungen: macOS 13+ (DDC-Helligkeit: Apple Silicon), Xcode Command
-Line Tools (`xcode-select --install`).
+Line Tools (`xcode-select --install`). Ein Apple-Entwicklerkonto ist
+**nicht** erforderlich.
 
 ```bash
 git clone https://github.com/pascallink/MacOS-Corsair-Xenon.git

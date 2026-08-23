@@ -1,0 +1,158 @@
+# Installation & Betrieb — Schritt für Schritt
+
+Diese Anleitung bringt das CORSAIR XENEON EDGE unter macOS zum Laufen —
+**ohne Apple-Entwicklerkonto**, ohne Kernel-Extension und ohne iCUE.
+
+---
+
+## 1. Was du brauchst
+
+- Mac mit **macOS 13 (Ventura) oder neuer**.
+  Für die Helligkeitssteuerung (DDC/CI): **Apple Silicon** (M1 oder neuer).
+  Touch und Dashboard funktionieren auch auf Intel-Macs.
+- **Xcode Command Line Tools** (kostenlos, kein Entwicklerkonto nötig):
+  ```bash
+  xcode-select --install
+  ```
+- Das XENEON EDGE mit **beiden** Kabeln:
+  - **Bild**: USB-C (DP-Alt-Mode) *oder* HDMI → das Edge erscheint als
+    normaler 2560×720-Monitor.
+  - **Daten**: das USB-Kabel → darüber laufen Touchscreen und die
+    Geräteabfrage. Ohne dieses Kabel gibt es Bild, aber keinen Touch.
+
+## 2. Bauen und installieren (ohne Entwicklerkonto)
+
+Es wird **kein** Apple-Developer-Account benötigt:
+
+- Die App ist eine normale Benutzer-App (keine System- oder Kernel-Erweiterung),
+  daher genügt eine **Ad-hoc-Signatur**, die das Build-Skript selbst erstellt
+  (`codesign --sign -`).
+- **Lokal gebaute** Apps bekommen keine Gatekeeper-Quarantäne — macOS startet
+  sie ohne Notarisierung.
+
+```bash
+git clone https://github.com/pascallink/MacOS-Corsair-Xenon.git
+cd MacOS-Corsair-Xenon
+./Scripts/bundle-app.sh      # baut dist/XeneonEdge.app und dist/xeneonctl
+./Scripts/install.sh         # kopiert nach /Applications, richtet Autostart ein
+```
+
+`install.sh` fragt einmal nach dem Admin-Passwort (`sudo`), nur um
+`xeneonctl` nach `/usr/local/bin` zu legen. Wer das nicht möchte, kann den
+Schritt im Skript auskommentieren — die App braucht ihn nicht.
+
+### Alternative: CI-Download statt selbst bauen
+
+Die GitHub-Actions-CI baut bei jedem Push das Artefakt **XeneonEdge-macOS**.
+Heruntergeladene Apps stehen unter Quarantäne und sind nur ad-hoc-signiert;
+macOS blockiert den ersten Start. Freigeben mit:
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/XeneonEdge.app
+```
+
+…oder Rechtsklick → „Öffnen“ → „Öffnen“ bestätigen. **Empfehlung:** lieber
+selbst bauen (Abschnitt oben) — dann entfällt das komplett und du weißt, was
+du ausführst.
+
+## 3. Berechtigungen (einmalig, alle widerrufbar)
+
+Beim ersten Start meldet sich macOS bis zu dreimal. Alle Freigaben unter
+*Systemeinstellungen → Datenschutz & Sicherheit*:
+
+| Berechtigung | Wofür | Pflicht? |
+|---|---|---|
+| **Bedienungshilfen** | Touch-Tipps werden als Mausklicks eingespeist | Ja, für Touch |
+| **Eingabemonitoring** | HID-Daten des Touch-Controllers lesen | Ja, für Touch |
+| **Automation (Musik/Spotify)** | Titelanzeige im Medien-Widget | Nein, optional |
+
+Nach dem Erteilen die App einmal beenden und neu starten (Menüleiste →
+„XeneonEdge beenden“, dann neu öffnen).
+
+**Hinweis:** Nach jedem Neu-Bauen ändert sich die Ad-hoc-Signatur — macOS kann
+die Freigaben dann erneut verlangen. Einfach in den Systemeinstellungen den
+alten Eintrag entfernen (−) und neu erteilen.
+
+## 4. Erster Funktionstest
+
+```bash
+xeneonctl probe
+```
+
+Erwartete Ausgabe, wenn alles verbunden ist:
+
+```
+== CORSAIR XENEON EDGE — probe ==
+Display   : XENEON EDGE (id 3)
+Bounds    : 2560x720 at (1512, 0)
+Vendor HID: XENEON EDGE / CORSAIR / SN 63432…
+DDC       : 1 external display I2C service(s)
+```
+
+- **Display fehlt** → Bildkabel/Modus prüfen (USB-C muss DP-Alt-Mode können).
+- **Vendor HID fehlt** → USB-Datenkabel prüfen.
+- **Touch testen ohne Klicks auszulösen**: `xeneonctl touch-monitor`
+  (reine Diagnose, es werden keine Mausereignisse erzeugt).
+
+Danach `XeneonEdge.app` starten: Das Dashboard legt sich als Vollbild auf das
+Edge; über das Menüleistensymbol lassen sich Touch, Dashboard und Helligkeit
+steuern.
+
+## 5. Risiken — ehrlich erklärt
+
+### Kann die Software die Firmware des Edge beschädigen? — Nein.
+
+Dafür sorgen mehrere Schichten:
+
+1. **Es gibt im gesamten Code keine Firmware-/Flash-Kommandos.** Nirgends.
+2. **Write-Gate im HID-Transport:** An das Vendor-Interface (`1b1c:1d0d`)
+   werden ausschließlich **lesende** Kommandos gesendet (GET `0x02`,
+   Block-Read `0x08`). Jedes andere Kommando wird vom Transport selbst mit
+   einem Fehler abgewiesen — auch wenn künftiger Code es versehentlich
+   versuchen würde. Der Schalter zum Umgehen (`dangerouslyAllowWrites`) wird
+   weder von der App noch vom CLI gesetzt.
+3. **Lesekommandos ändern keinen Gerätezustand.** Das verwendete GET ist
+   von der Linux-Community am echten Gerät verifiziert; die Antwort ist ein
+   Echo mit Daten. Ein unbekanntes Property liefert schlimmstenfalls
+   Füllbytes (`FF…`).
+4. Die Firmware selbst akzeptiert Updates ohnehin nur über einen eigenen,
+   von Corsair signierten Update-Prozess — den diese Software nie anspricht.
+
+### Was die Software sonst tut — und was dabei passieren kann
+
+| Bereich | Was passiert | Restrisiko | Rückgängig machen |
+|---|---|---|---|
+| **DDC/CI** (Helligkeit/Kontrast/Power) | Standard-Monitorbefehle über das Displaykabel — dieselben, die jedes OSD nutzt | Ein falscher `xeneonctl ddc set`-Wert kann das Bild verstellen (z. B. Eingang umschalten, Bild dunkel) | Immer über das OSD/Joystick am Monitor oder erneutes `ddc set` korrigierbar; **Werksreset im OSD** setzt alles zurück. Firmware ist nicht erreichbar |
+| **Touch → Klicks** | Die App darf systemweit Mausklicks erzeugen (Bedienungshilfen) | Bei falscher Kalibrierung/Rotation landen Klicks an falscher Stelle — auch auf anderen Displays | Menüleiste → „Touch-Eingabe aktiv“ abschalten (⌘T) oder App beenden; Rotation in `config.json` korrigieren |
+| **Eingabemonitoring** | Die App liest nur die Reports des Touch-Controllers (27c0:0859) | Die Berechtigung selbst erlaubt technisch mehr — der Quellcode ist offen und filtert per Vendor/Product-ID | Berechtigung jederzeit in den Systemeinstellungen entziehen |
+| **Wetter-Widget** | Optionaler HTTPS-Abruf bei open-meteo.com (nur Koordinaten aus der Config, keine persönlichen Daten) | — | `showWeather: false` (Standard: aus) |
+| **Private IOAVService-API** (DDC auf Apple Silicon) | Nicht dokumentierte, aber weit verbreitete Apple-API (m1ddc, MonitorControl) | Kann nach einem macOS-Update brechen → DDC-Funktionen melden dann Fehler; Touch/Dashboard sind davon unabhängig | Nichts kaputt — Feature fällt kontrolliert aus |
+| **Garantie** | Software nutzt nur USB-HID-Lesezugriffe und Standard-DDC | Corsair supportet macOS offiziell nicht; im Zweifel bei Supportfällen iCUE-Setup am PC zeigen | — |
+
+**Generell gilt:** Open Source unter GPL-3.0, keine Gewährleistung
+(siehe LICENSE). Auf echter Hardware noch jung — bitte Probleme mit der
+Ausgabe von `xeneonctl probe` als GitHub-Issue melden.
+
+## 6. Deinstallation (rückstandsfrei)
+
+```bash
+launchctl unload ~/Library/LaunchAgents/de.pascallink.xeneonedge.plist
+rm ~/Library/LaunchAgents/de.pascallink.xeneonedge.plist
+rm -rf /Applications/XeneonEdge.app
+sudo rm -f /usr/local/bin/xeneonctl
+rm -rf ~/Library/Application\ Support/XeneonEdge
+```
+
+Anschließend die erteilten Berechtigungen unter *Datenschutz & Sicherheit*
+entfernen. Das Edge selbst bleibt unverändert — es wurde nie etwas darauf
+gespeichert.
+
+## 7. Häufige Probleme
+
+| Symptom | Ursache / Lösung |
+|---|---|
+| Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen |
+| Klicks an falscher Stelle | Edge in den macOS-Displayeinstellungen gedreht montiert? `touchRotation` (90/180/270) bzw. `touchInvertX/Y` in `config.json` setzen |
+| Helligkeit schlägt fehl | Intel-Mac (noch nicht unterstützt) oder Dock/Adapter leitet DDC nicht durch → Edge direkt anschließen |
+| Dashboard auf falschem Display | Displaynamen prüfen: App sucht „XENEON“, dann 32:9-Seitenverhältnis; ggf. Issue melden |
+| App startet nach Neubau nicht mehr / fragt erneut nach Rechten | Ad-hoc-Signatur hat sich geändert → alte Einträge in Datenschutz & Sicherheit entfernen, neu erteilen |
