@@ -214,13 +214,17 @@ public struct ModelPricing: Equatable {
         else if m.contains("haiku") { family = "Haiku" }
         else { return model }
 
-        // Try to extract a version like "5" or "4-5" following the family name.
+        // Extract a version like "5" or "4-5" following the family name,
+        // ignoring trailing date stamps ("...-20251001").
         if let range = m.range(of: family.lowercased() + "-") {
-            let tail = m[range.upperBound...]
-            let version = tail.prefix { $0.isNumber || $0 == "-" || $0 == "." }
-                .replacingOccurrences(of: "-", with: ".")
-            let trimmed = version.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            if !trimmed.isEmpty, trimmed.count <= 3 { return "\(family) \(trimmed)" }
+            var parts: [Substring] = []
+            for component in m[range.upperBound...].split(separator: "-") {
+                guard component.allSatisfy(\.isNumber), component.count <= 2 else { break }
+                parts.append(component)
+            }
+            if !parts.isEmpty {
+                return "\(family) \(parts.joined(separator: "."))"
+            }
         }
         return family
     }
