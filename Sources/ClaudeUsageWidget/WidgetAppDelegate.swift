@@ -16,6 +16,20 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        // Two instances would load and save claude-widget.json independently,
+        // clobbering each other's edits — refuse to run alongside an older one.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if !others.isEmpty {
+                NSLog("ClaudeUsageWidget: another instance is already running (pid \(others[0].processIdentifier)) — exiting")
+                NSApp.terminate(nil)
+                return
+            }
+        }
+
         model.start()
         makeWindow()
         position()
@@ -115,7 +129,11 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func reposition() { position() }
 
     @objc private func openConfig() {
-        model.config.save() // ensure the file exists
+        // Only create the file when it is missing — writing the in-memory
+        // copy unconditionally would overwrite edits made by hand.
+        if !FileManager.default.fileExists(atPath: WidgetConfig.fileURL.path) {
+            try? model.config.save()
+        }
         NSWorkspace.shared.activateFileViewerSelecting([WidgetConfig.fileURL])
     }
 

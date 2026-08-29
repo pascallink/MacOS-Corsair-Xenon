@@ -120,20 +120,24 @@ public struct AppConfig: Codable, Equatable {
     }
 
     public static func load() -> AppConfig {
-        guard let data = try? Data(contentsOf: fileURL),
-              let config = try? JSONDecoder().decode(AppConfig.self, from: data)
-        else {
+        guard let data = try? Data(contentsOf: fileURL) else { return AppConfig() }
+        do {
+            return try JSONDecoder().decode(AppConfig.self, from: data)
+        } catch {
+            // A malformed file must not silently reset every setting.
+            NSLog("XeneonEdge: config.json could not be read (\(error)) — using defaults")
             return AppConfig()
         }
-        return config
     }
 
-    public func save() {
+    /// Writes the configuration. Throws instead of failing silently: a lost
+    /// write means the user's settings vanish without any hint why.
+    public func save() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(self) else { return }
-        try? FileManager.default.createDirectory(at: Self.directory,
-                                                 withIntermediateDirectories: true)
-        try? data.write(to: Self.fileURL, options: .atomic)
+        let data = try encoder.encode(self)
+        try FileManager.default.createDirectory(at: Self.directory,
+                                                withIntermediateDirectories: true)
+        try data.write(to: Self.fileURL, options: .atomic)
     }
 }

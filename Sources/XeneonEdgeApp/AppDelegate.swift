@@ -43,6 +43,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory) // menu bar only, no dock icon
 
+        // A second instance (e.g. started from Finder while the LaunchAgent
+        // copy is already running) would load and save config.json
+        // independently, so edits keep getting clobbered by whichever
+        // instance saves last. Refuse to run alongside an older one.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleID)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if !others.isEmpty {
+                NSLog("XeneonEdge: another instance is already running (pid \(others[0].processIdentifier)) — exiting")
+                NSApp.terminate(nil)
+                return
+            }
+        }
+
         // Ask for the Accessibility permission needed to inject touch clicks.
         if !TouchDriver.hasAccessibilityPermission(prompt: true) {
             NSLog("XeneonEdge: waiting for Accessibility permission (System Settings → Privacy & Security → Accessibility)")
@@ -321,7 +336,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         // Only create the file when it is missing — writing the in-memory copy
         // unconditionally would overwrite edits the user made by hand.
         if !FileManager.default.fileExists(atPath: AppConfig.fileURL.path) {
-            configStore.config.save()
+            do {
+                try configStore.config.save()
+            } catch {
+                showAlert(title: "Konfiguration konnte nicht angelegt werden", text: "\(error)")
+                return
+            }
         }
         NSWorkspace.shared.activateFileViewerSelecting([AppConfig.fileURL])
     }

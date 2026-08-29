@@ -14,23 +14,48 @@ import XeneonEdgeKit
 final class ConfigStore: ObservableObject {
     @Published var config: AppConfig {
         didSet {
-            guard !isReloading else { return }
-            config.save()
+            // Swift calls didSet for an assignment made from within init()
+            // itself, not just for changes after it — so without this guard,
+            // loading a config that fails to decode (e.g. a hand-edit typo)
+            // would immediately save the resulting defaults right back over
+            // the user's file, destroying it before they get a chance to
+            // fix the typo. Only a real, user-driven change may save.
+            guard !isLoading else { return }
+            do {
+                try config.save()
+            } catch {
+                NSLog("XeneonEdge: could not save config.json: \(error)")
+                lastSaveError = "\(error)"
+                DispatchQueue.main.async {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Konfiguration konnte nicht gespeichert werden"
+                    alert.informativeText = "\(error)\n\nDie Änderung gilt nur für diese Sitzung "
+                        + "und geht beim nächsten Start verloren."
+                    alert.runModal()
+                }
+            }
         }
     }
 
-    private var isReloading = false
+    /// Set whenever a save fails, so the UI can surface it instead of the
+    /// change silently failing to persist.
+    @Published var lastSaveError: String?
+
+    private var isLoading = false
 
     init() {
+        isLoading = true
         config = AppConfig.load()
+        isLoading = false
     }
 
     /// Re-reads the file from disk after the user edited it by hand, without
     /// writing the in-memory copy back over their changes.
     func reload() {
-        isReloading = true
+        isLoading = true
         config = AppConfig.load()
-        isReloading = false
+        isLoading = false
     }
 }
 

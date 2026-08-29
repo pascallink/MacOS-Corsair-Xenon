@@ -69,6 +69,17 @@ final class WriteGateTests: XCTestCase {
 }
 
 final class ConfigTests: XCTestCase {
+    /// JSON numbers may not have a leading zero (RFC 8259 §6) — a common
+    /// hand-edit slip (e.g. "08.37" instead of "8.37") makes the *entire*
+    /// file fail to decode, not just that one field. AppConfig.load() must
+    /// treat that as "use defaults for this run", not "reset the file" —
+    /// covered separately by the app's ConfigStore (AppKit, untestable
+    /// here), but the parsing behavior this bug hinges on is asserted here.
+    func testLeadingZeroNumberFailsToDecode() {
+        let json = #"{"weatherLongitude": 08.37}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8)))
+    }
+
     func testConfigRoundTrip() throws {
         var config = AppConfig()
         config.touchRotation = 180
