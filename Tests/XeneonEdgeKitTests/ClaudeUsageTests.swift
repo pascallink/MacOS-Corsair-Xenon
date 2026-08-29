@@ -337,6 +337,47 @@ import Testing
         #expect(usages[1].snapshot.today.inputTokens == 520)
     }
 
+    /// Acceptance criterion: a profile whose directory does not exist (the
+    /// "Team" login before its first `CLAUDE_CONFIG_DIR=... claude` run, for
+    /// example) must show up as zero tokens, never crash and never poison
+    /// the other profiles' results.
+    @Test func missingDirectoryYieldsZeroTokensNotACrash() throws {
+        let now = Date()
+        let existingDir = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 55, messageID: "x")])
+        defer { try? FileManager.default.removeItem(at: existingDir) }
+        let missingDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xeneon-profile-does-not-exist-\(UUID().uuidString)")
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [
+            ClaudeProfile(name: "Persönlich / Pro", configDir: existingDir.path),
+            ClaudeProfile(name: "inxire / Team", configDir: missingDir.path),
+        ], now: now)
+
+        #expect(usages.count == 2)
+        #expect(usages[0].snapshot.today.inputTokens == 55)
+        #expect(usages[1].snapshot.today.inputTokens == 0)
+        #expect(usages[1].snapshot.activeBlock == nil)
+        #expect(usages[1].snapshot.subscriptionType == nil)
+        #expect(usages[1].snapshot.scannedFiles == 0)
+    }
+
+    /// A path that exists but is a plain file (not a directory) — a
+    /// plausible typo in a hand-edited config — must be equally harmless.
+    @Test func configDirPointingAtAFileYieldsZeroTokens() throws {
+        let filePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xeneon-not-a-directory-\(UUID().uuidString)")
+        try Data("not a directory".utf8).write(to: filePath)
+        defer { try? FileManager.default.removeItem(at: filePath) }
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [
+            ClaudeProfile(name: "Broken", configDir: filePath.path)
+        ])
+        #expect(usages[0].snapshot.today.inputTokens == 0)
+        #expect(usages[0].snapshot.activeBlock == nil)
+    }
+
     // MARK: Config decoding
 
     /// Configs written before this feature have no `claudeProfiles` key and
