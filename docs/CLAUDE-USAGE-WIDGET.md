@@ -23,12 +23,13 @@ Benutzerordner.
 
 ## Zwei Betriebsarten
 
-1. **Panel im XeneonEdge-Dashboard (integriert):** In der Dashboard-Konfiguration
-   (`~/Library/Application Support/XeneonEdge/config.json`)
-   `"showClaudeUsage": true` setzen und die XeneonEdge-App neu starten —
-   das „Claude“-Panel erscheint in der mittleren Spalte (Ring, Reset-Countdown,
-   Kosten, Modell-Badge). Optional `"claudeTokenBudgetPerBlock"` setzen
-   (siehe unten), damit der Ring den Budget-Verbrauch statt der Zeit zeigt.
+1. **Panel im XeneonEdge-Dashboard (integriert):** In der Menüleiste der
+   XeneonEdge-App → **Widgets → Claude-Nutzung** einschalten. Das
+   „Claude“-Panel erscheint sofort in der mittleren Spalte (Ring,
+   Reset-Countdown, Kosten, Modell-Badge) — kein Neustart, kein Editieren
+   von JSON. Optional `"claudeTokenBudgetPerBlock"` in der `config.json`
+   setzen (siehe unten), damit der Ring den Budget-Verbrauch statt der Zeit
+   zeigt; danach „Konfiguration neu laden“ wählen.
 2. **Eigenständiges Floating-Widget** (`ClaudeUsageWidget.app`) — z. B. wenn das
    große Dashboard aus ist und das Edge als normaler Monitor läuft. Beide
    können auch parallel laufen.

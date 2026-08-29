@@ -8,6 +8,23 @@ import AppKit
 import SwiftUI
 import XeneonEdgeKit
 
+/// The dashboard panels the user can switch on and off from the menu bar.
+private enum WidgetToggle: Int, CaseIterable {
+    case clock = 1, stats, media, volume, launcher, weather, claude
+
+    var title: String {
+        switch self {
+        case .clock: return "Uhrzeit"
+        case .stats: return "System (CPU/RAM/Netz)"
+        case .media: return "Medien"
+        case .volume: return "Lautstärke"
+        case .launcher: return "Schnellstart"
+        case .weather: return "Wetter"
+        case .claude: return "Claude-Nutzung"
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private var statusItem: NSStatusItem!
     private let configStore = ConfigStore()
@@ -43,13 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         statsModel.start()
         mediaModel.start()
         volumeModel.start()
-        if configStore.config.showClaudeUsage {
-            claudeModel.start()
-        }
-        if configStore.config.showWeather {
-            weatherModel.start(latitude: configStore.config.weatherLatitude,
-                               longitude: configStore.config.weatherLongitude)
-        }
+        applyWidgetServices()
 
         applyTouchConfiguration()
         touchDriver.delegate = self
@@ -77,6 +88,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
                              previewAllowed: configStore.config.previewWithoutDevice)
         } else {
             dashboard.hide()
+        }
+    }
+
+    /// Starts or stops the background work behind the optional panels, so a
+    /// switched-off widget costs nothing.
+    private func applyWidgetServices() {
+        if configStore.config.showClaudeUsage { claudeModel.start() } else { claudeModel.stop() }
+        if configStore.config.showWeather {
+            weatherModel.start(latitude: configStore.config.weatherLatitude,
+                               longitude: configStore.config.weatherLongitude)
+        } else {
+            weatherModel.stop()
+        }
+    }
+
+    private func isEnabled(_ widget: WidgetToggle) -> Bool {
+        switch widget {
+        case .clock: return configStore.config.showClock
+        case .stats: return configStore.config.showStats
+        case .media: return configStore.config.showMedia
+        case .volume: return configStore.config.showVolume
+        case .launcher: return configStore.config.showLauncher
+        case .weather: return configStore.config.showWeather
+        case .claude: return configStore.config.showClaudeUsage
+        }
+    }
+
+    private func setEnabled(_ widget: WidgetToggle, _ value: Bool) {
+        switch widget {
+        case .clock: configStore.config.showClock = value
+        case .stats: configStore.config.showStats = value
+        case .media: configStore.config.showMedia = value
+        case .volume: configStore.config.showVolume = value
+        case .launcher: configStore.config.showLauncher = value
+        case .weather: configStore.config.showWeather = value
+        case .claude: configStore.config.showClaudeUsage = value
         }
     }
 
@@ -149,6 +196,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         dashToggle.state = configStore.config.dashboardEnabled ? .on : .off
         menu.addItem(dashToggle)
 
+        // Panels of the dashboard
+        let widgetsItem = NSMenuItem(title: "Widgets", action: nil, keyEquivalent: "")
+        let widgetsMenu = NSMenu()
+        for widget in WidgetToggle.allCases {
+            let item = NSMenuItem(title: widget.title,
+                                  action: #selector(toggleWidget(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = widget.rawValue
+            item.state = isEnabled(widget) ? .on : .off
+            widgetsMenu.addItem(item)
+        }
+        widgetsItem.submenu = widgetsMenu
+        menu.addItem(widgetsItem)
+
         // Brightness submenu (DDC/CI)
         let brightnessItem = NSMenuItem(title: "Helligkeit", action: nil, keyEquivalent: "")
         let brightnessMenu = NSMenu()
@@ -172,6 +233,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
                                     action: #selector(openConfig), keyEquivalent: ",")
         configItem.target = self
         menu.addItem(configItem)
+
+        let reloadItem = NSMenuItem(title: "Konfiguration neu laden",
+                                    action: #selector(reloadConfig), keyEquivalent: "l")
+        reloadItem.target = self
+        menu.addItem(reloadItem)
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "XeneonEdge beenden",
@@ -191,6 +257,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
 
     @objc private func toggleDashboard() {
         configStore.config.dashboardEnabled.toggle()
+        refreshDisplays()
+        rebuildMenu()
+    }
+
+    @objc private func toggleWidget(_ sender: NSMenuItem) {
+        guard let widget = WidgetToggle(rawValue: sender.tag) else { return }
+        setEnabled(widget, !isEnabled(widget))
+        applyWidgetServices()
+        rebuildMenu()
+    }
+
+    @objc private func reloadConfig() {
+        configStore.reload()
+        applyTouchConfiguration()
+        applyWidgetServices()
         refreshDisplays()
         rebuildMenu()
     }
@@ -237,7 +318,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     }
 
     @objc private func openConfig() {
-        configStore.config.save() // make sure the file exists
+        // Only create the file when it is missing — writing the in-memory copy
+        // unconditionally would overwrite edits the user made by hand.
+        if !FileManager.default.fileExists(atPath: AppConfig.fileURL.path) {
+            configStore.config.save()
+        }
         NSWorkspace.shared.activateFileViewerSelecting([AppConfig.fileURL])
     }
 

@@ -175,9 +175,16 @@ erteilen. Deine Konfigurationsdateien bleiben beim Update erhalten.
 
 ## 5b. Widgets des Dashboards anpassen
 
-Die Dashboard-Konfiguration liegt in
+**Am einfachsten über die Menüleiste:** Menüleistensymbol → **Widgets** —
+dort lassen sich Uhrzeit, System, Medien, Lautstärke, Schnellstart, Wetter
+und Claude-Nutzung einzeln an- und abschalten. Die Änderung wirkt sofort
+und wird gespeichert; kein Neustart nötig.
+
+Für alles Weitere (Wetter-Koordinaten, Schnellstart-Buttons, Touch-Rotation)
+liegt die Konfiguration in
 `~/Library/Application Support/XeneonEdge/config.json` (Menüleiste →
-„Konfigurationsdatei öffnen …“). Nach Änderungen die App neu starten.
+„Konfigurationsdatei öffnen …“). Nach dem Bearbeiten genügt
+„Konfiguration neu laden“ (⌘L) — ein Neustart ist nicht erforderlich.
 
 Panels ein-/ausschalten:
 

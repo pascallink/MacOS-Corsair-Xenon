@@ -13,11 +13,24 @@ import XeneonEdgeKit
 
 final class ConfigStore: ObservableObject {
     @Published var config: AppConfig {
-        didSet { config.save() }
+        didSet {
+            guard !isReloading else { return }
+            config.save()
+        }
     }
+
+    private var isReloading = false
 
     init() {
         config = AppConfig.load()
+    }
+
+    /// Re-reads the file from disk after the user edited it by hand, without
+    /// writing the in-memory copy back over their changes.
+    func reload() {
+        isReloading = true
+        config = AppConfig.load()
+        isReloading = false
     }
 }
 
@@ -189,10 +202,13 @@ final class WeatherModel: ObservableObject {
     private var timer: Timer?
     private var latitude = 0.0
     private var longitude = 0.0
+    private var isRunning = false
 
     func start(latitude: Double, longitude: Double) {
+        if isRunning, latitude == self.latitude, longitude == self.longitude { return }
         self.latitude = latitude
         self.longitude = longitude
+        isRunning = true
         fetch()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 900, repeats: true) { [weak self] _ in
@@ -203,6 +219,7 @@ final class WeatherModel: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        isRunning = false
     }
 
     private func fetch() {
