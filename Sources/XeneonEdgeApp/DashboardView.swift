@@ -334,6 +334,98 @@ struct ClaudeUsagePanel: View {
 
     var body: some View {
         Panel(title: "Claude", systemImage: "gauge.with.needle") {
+            if claude.isMultiProfile {
+                profileList
+            } else {
+                singleProfile
+            }
+        }
+    }
+
+    // MARK: Several profiles: one compact row each
+    //
+    // Every profile keeps its own 5h window, so each row carries its own
+    // token count, bar and reset countdown. Nothing is summed across rows —
+    // that number would belong to no real limit.
+
+    private var profileList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(claude.profileUsages) { usage in
+                profileRow(usage)
+            }
+        }
+    }
+
+    private func rowColor(_ fraction: Double?) -> Color {
+        guard let fraction else { return EdgeTheme.accent }
+        if fraction >= 0.9 { return Color(red: 0.92, green: 0.30, blue: 0.30) }
+        if fraction >= 0.7 { return Color(red: 0.95, green: 0.55, blue: 0.20) }
+        return Color(red: 0.35, green: 0.80, blue: 0.45)
+    }
+
+    private func profileRow(_ usage: ClaudeUsageReader.ProfileUsage) -> some View {
+        let snapshot = usage.snapshot
+        let tokens = snapshot.activeBlock?.totals.billableTokens ?? 0
+        let budget = configStore.config.claudeTokenBudgetPerBlock
+        let fraction: Double? = budget > 0
+            ? min(Double(tokens) / Double(budget), 1.0)
+            : nil
+        let elapsed = snapshot.activeBlock.map {
+            min(max(Date().timeIntervalSince($0.start) / UsageBlock.duration, 0), 1)
+        } ?? 0
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(usage.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(EdgeTheme.textPrimary)
+                    .lineLimit(1)
+                if claude.cloudProfileIDs.contains(usage.id) {
+                    Image(systemName: "icloud")
+                        .font(.system(size: 10))
+                        .foregroundColor(EdgeTheme.textSecondary)
+                }
+                Spacer(minLength: 4)
+                Text(UsageFormat.tokens(tokens))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textPrimary)
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.10))
+                    Capsule()
+                        .fill(rowColor(fraction))
+                        .frame(width: (fraction ?? elapsed) * geometry.size.width)
+                }
+            }
+            .frame(height: 5)
+            HStack(spacing: 5) {
+                if let block = snapshot.activeBlock {
+                    Text("Reset in \(UsageFormat.countdown(block.remaining(at: Date())))")
+                        .monospacedDigit()
+                    Text("·")
+                    Text(UsageFormat.cost(block.totals.costUSD))
+                        .monospacedDigit()
+                } else {
+                    Text("keine aktive Session")
+                }
+                Spacer(minLength: 0)
+                if let model = snapshot.latestModel {
+                    Text(ModelPricing.displayName(for: model))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(EdgeTheme.accent))
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundColor(EdgeTheme.textSecondary)
+        }
+    }
+
+    private var singleProfile: some View {
             HStack(spacing: 16) {
                 ZStack {
                     Circle().stroke(Color.white.opacity(0.10), lineWidth: 9)
@@ -393,7 +485,6 @@ struct ClaudeUsagePanel: View {
                 }
                 Spacer(minLength: 0)
             }
-        }
     }
 }
 

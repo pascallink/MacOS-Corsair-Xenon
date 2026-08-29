@@ -51,15 +51,57 @@ public final class ClaudeUsageReader {
     ///   a cloud/remote relay) to fold into the same 5h-block and "today"
     ///   computation as the local logs. Already deduplicated by the caller.
     public func snapshot(now: Date = Date(), additionalEntries: [ClaudeUsageEntry] = []) -> ClaudeUsageSnapshot {
+        makeSnapshot(directories: configDirectories, now: now,
+                     additionalEntries: additionalEntries)
+    }
+
+    // MARK: - Per-profile snapshots
+
+    /// Usage of one profile, computed from that profile's directory alone.
+    public struct ProfileUsage: Equatable, Identifiable {
+        public let id: UUID
+        public let name: String
+        public let snapshot: ClaudeUsageSnapshot
+
+        public init(id: UUID, name: String, snapshot: ClaudeUsageSnapshot) {
+            self.id = id
+            self.name = name
+            self.snapshot = snapshot
+        }
+    }
+
+    /// Builds one snapshot per profile. Each profile is read from its own
+    /// directory and aggregated on its own, because every login has an
+    /// independent 5-hour window: mixing two profiles' entries into one
+    /// `UsageBlock` would report a number that belongs to neither limit and
+    /// a reset countdown that is wrong for at least one of them.
+    ///
+    /// - Parameter additionalEntries: Cloud-relay entries per profile id.
+    public func snapshots(for profiles: [ClaudeProfile], now: Date = Date(),
+                          additionalEntries: [UUID: [ClaudeUsageEntry]] = [:]) -> [ProfileUsage] {
+        profiles.map { profile in
+            ProfileUsage(
+                id: profile.id,
+                name: profile.name,
+                snapshot: makeSnapshot(directories: [profile.directoryURL], now: now,
+                                       additionalEntries: additionalEntries[profile.id] ?? [])
+            )
+        }
+    }
+
+    // MARK: - Aggregation
+
+    private func makeSnapshot(directories: [URL], now: Date,
+                              additionalEntries: [ClaudeUsageEntry]) -> ClaudeUsageSnapshot {
         var snap = ClaudeUsageSnapshot()
         snap.lastUpdated = now
-        snap.subscriptionType = readSubscriptionType()
+        snap.subscriptionType = readSubscriptionType(in: directories)
 
         var entries: [ClaudeUsageEntry] = []
         var seen = Set<String>()
         let cutoff = now.addingTimeInterval(-lookback)
 
-        for dir in configDirectories {
+        for dir in directories {
             let projects = dir.appendingPathComponent("projects")
             guard fileManager.fileExists(atPath: projects.path) else { continue }
             guard let files = try? allJSONLFiles(under: projects) else { continue }
@@ -194,8 +236,15 @@ public final class ClaudeUsageReader {
     /// Reads ONLY the subscription type from .credentials.json. The file
     /// also holds OAuth tokens — they are deliberately never extracted,
     /// logged or returned.
-    private func readSubscriptionType() -> String? {
-        for dir in configDirectories {
+    ///
+    /// On macOS this file is frequently absent because Claude Code keeps the
+    /// credentials in the Keychain instead. We do not read them from there:
+    /// the Keychain item is one blob holding the access tokens, so getting
+    /// the plan name out of it would mean pulling the tokens into this
+    /// process — exactly what this reader promises never to do. A missing
+    /// file therefore means "plan unknown" and the UI omits the badge.
+    private func readSubscriptionType(in directories: [URL]) -> String? {
+        for dir in directories {
             let url = dir.appendingPathComponent(".credentials.json")
             guard let data = try? Data(contentsOf: url),
                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]

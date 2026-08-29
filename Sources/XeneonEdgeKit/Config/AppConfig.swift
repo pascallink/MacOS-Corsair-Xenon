@@ -64,6 +64,10 @@ public struct AppConfig: Codable, Equatable {
     /// Poll interval for the cloud relay; clamped to >=60s to stay under
     /// GitHub's unauthenticated REST rate limit (60 requests/hour/IP).
     public var cloudPollSeconds: Double = 90
+    /// Claude logins to track separately (e.g. a personal and a work
+    /// account). Each one keeps its own 5h window, so they are never summed.
+    /// Empty = auto-detect a single profile, the previous behaviour.
+    public var claudeProfiles: [ClaudeProfile] = []
 
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
@@ -111,6 +115,7 @@ public struct AppConfig: Codable, Equatable {
         claudeTokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerBlock) ?? d.claudeTokenBudgetPerBlock
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
         cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
+        claudeProfiles = try c.decodeIfPresent([ClaudeProfile].self, forKey: .claudeProfiles) ?? d.claudeProfiles
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
