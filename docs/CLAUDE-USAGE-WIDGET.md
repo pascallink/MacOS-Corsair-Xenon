@@ -74,7 +74,8 @@ Menüleiste „Konfiguration neu laden“ wählen):
   "margin": 24,
   "width": 560,
   "height": 250,
-  "includeCacheReads": false
+  "includeCacheReads": false,
+  "claudeProfiles": []
 }
 ```
 
@@ -86,7 +87,73 @@ Menüleiste „Konfiguration neu laden“ wählen):
 - **`corner`** — `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, `center`.
 - **`includeCacheReads`** — Cache-Reads mitzählen (Standard: aus, da sie
   bei den Limits kaum ins Gewicht fallen).
-- **`cloudGistID`** / **`cloudPollSeconds`** — siehe nächster Abschnitt.
+- **`cloudGistID`** / **`cloudPollSeconds`** — siehe Abschnitt Cloud-Relay.
+- **`claudeProfiles`** — mehrere Claude-Logins getrennt anzeigen, siehe
+  nächster Abschnitt. Leer (Standard) = ein Profil automatisch erkennen.
+
+## Mehrere Claude-Profile (z. B. privat + geschäftlich)
+
+Wer zwei Claude-Logins nutzt, hat **zwei getrennte 5-h-Limits**. Ihre
+Verbräuche zu addieren wäre nicht nur unvollständig, sondern falsch: Die
+Summe gehört zu keinem der beiden echten Limits, und ein gemeinsamer
+Reset-Countdown wäre für mindestens eines der Profile verkehrt. Das Widget
+führt sie deshalb strikt getrennt — es wird nichts über Profile hinweg
+summiert.
+
+### Zweites Profil anlegen
+
+Ein Profil entsteht dadurch, dass Claude Code mit eigenem
+Konfigurationsverzeichnis gestartet wird:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-work claude
+```
+
+Der Login erfolgt darin getrennt, und die Transkripte landen unter
+`~/.claude-work/projects`. Praktisch ist ein Shell-Alias:
+
+```bash
+alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'
+```
+
+### Im Widget eintragen
+
+```json
+{
+  "claudeProfiles": [
+    { "name": "Privat", "configDir": "~/.claude" },
+    { "name": "Arbeit", "configDir": "~/.claude-work" }
+  ]
+}
+```
+
+Kurzform genügt — fehlt `name`, wird der Verzeichnisname verwendet
+(`~/.claude-work` → „claude-work"):
+
+```json
+{ "claudeProfiles": [{ "configDir": "~/.claude-work" }] }
+```
+
+Ab zwei Profilen wechselt die Darstellung auf eine kompakte Zeile pro
+Profil, jeweils mit eigenem Tokenstand, eigenem Balken und eigenem
+Reset-Countdown. Bei nur einem Profil (oder leerer Liste) bleibt die
+Anzeige unverändert.
+
+### Cloud-Relay pro Profil
+
+Jedes Profil kann sein eigenes Gist mitbringen:
+
+```json
+{ "claudeProfiles": [
+    { "name": "Arbeit", "configDir": "~/.claude-work", "cloudGistID": "abc123" }
+] }
+```
+
+Sind Profile konfiguriert, wird das **oberste** `cloudGistID` ignoriert (es
+wäre nicht zuzuordnen); ein entsprechender Hinweis landet im Log. Das
+Abfrageintervall skaliert automatisch mit der Zahl der Gists, damit GitHubs
+Limit von 60 unauthentifizierten Anfragen pro Stunde und IP eingehalten
+wird — bei zwei Gists sind es mindestens 120 s.
 
 ## Cloud-Relay: Sessions aus der Cloud/Remote-Umgebung
 
@@ -168,9 +235,15 @@ Gist zusätzlich zu den lokalen Logs mit.
   Methode wie ccusage, aber ohne Garantie, dass Anthropics Server exakt
   gleich rechnen.
 - Erfasst wird nur, was auf **diesem Mac** unter `~/.claude` liegt
-  (`CLAUDE_CONFIG_DIR` wird respektiert), plus optional die per Cloud-Relay
-  angebundenen Remote-Sessions (siehe oben) — jede Umgebung, die weder
-  hier noch dort erfasst ist, bleibt unsichtbar.
+  (`CLAUDE_CONFIG_DIR` bzw. `claudeProfiles` werden respektiert), plus
+  optional die per Cloud-Relay angebundenen Remote-Sessions (siehe oben) —
+  jede Umgebung, die weder hier noch dort erfasst ist, bleibt unsichtbar.
+- Der **Plan-Name** (Pro/Max) stammt aus `.credentials.json` im jeweiligen
+  Profilverzeichnis. Auf macOS legt Claude Code die Zugangsdaten oft im
+  Schlüsselbund statt in dieser Datei ab — dann fehlt die Datei und das
+  Plan-Abzeichen bleibt aus. Aus dem Schlüsselbund wird bewusst **nicht**
+  gelesen: Der Eintrag enthält die OAuth-Tokens, und die sollen dieses
+  Programm nie erreichen. Lieber kein Abzeichen als diese Grenze aufweichen.
 - Der Cloud-Relay ist ein Community-Workaround (Gist + Hook), keine
   offizielle Anthropic-Schnittstelle — es gibt derzeit keine dokumentierte
   API, die den 5-h-Fensterverbrauch eines Pro/Max/Team-Abos aus der Ferne

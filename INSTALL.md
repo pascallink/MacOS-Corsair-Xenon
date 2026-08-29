@@ -204,6 +204,20 @@ Panels ein-/ausschalten:
 - **`showClaudeUsage`** — Panel mit der lokalen Claude-Code-Nutzung
   (Token im 5-h-Fenster, Reset-Countdown, Kosten, Modell); Details in
   [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
+- **`claudeProfiles`** — mehrere Claude-Logins (z. B. privat und
+  geschäftlich) getrennt anzeigen. Jedes Login hat sein eigenes 5-h-Limit,
+  daher wird nichts über Profile hinweg summiert:
+
+  ```json
+  "claudeProfiles": [
+    { "name": "Privat", "configDir": "~/.claude" },
+    { "name": "Arbeit", "configDir": "~/.claude-work" }
+  ]
+  ```
+
+  Leer (Standard) = ein Profil automatisch erkennen, Anzeige wie bisher.
+  Wie ein zweites Profil entsteht, steht in
+  [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
 - **`showWeather`** — braucht zusätzlich `weatherLatitude`,
   `weatherLongitude` und `weatherPlaceName`.
 

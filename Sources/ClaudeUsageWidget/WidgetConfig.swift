@@ -5,6 +5,7 @@
 // ~/Library/Application Support/XeneonEdge/claude-widget.json
 
 import Foundation
+import XeneonEdgeKit
 
 struct WidgetConfig: Codable, Equatable {
     /// Refresh interval in seconds (30-60s is sensible).
@@ -33,6 +34,10 @@ struct WidgetConfig: Codable, Equatable {
     /// Poll interval for the cloud relay; clamped to >=60s to stay under
     /// GitHub's unauthenticated REST rate limit (60 requests/hour/IP).
     var cloudPollSeconds: Double = 90
+    /// Claude logins to track separately (e.g. a personal and a work
+    /// account). Each one keeps its own 5h window, so they are never summed.
+    /// Empty = auto-detect a single profile, the previous behaviour.
+    var claudeProfiles: [ClaudeProfile] = []
 
     // MARK: Tolerant decoding
     // The synthesized Codable init requires every key to be present, so a
@@ -54,6 +59,7 @@ struct WidgetConfig: Codable, Equatable {
         includeCacheReads = try c.decodeIfPresent(Bool.self, forKey: .includeCacheReads) ?? d.includeCacheReads
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
         cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
+        claudeProfiles = try c.decodeIfPresent([ClaudeProfile].self, forKey: .claudeProfiles) ?? d.claudeProfiles
     }
 
     static var fileURL: URL {

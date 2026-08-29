@@ -110,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     /// switched-off widget costs nothing.
     private func applyWidgetServices() {
         if configStore.config.showClaudeUsage {
-            claudeModel.start(cloudGistID: configStore.config.cloudGistID,
+            claudeModel.start(profiles: configStore.config.claudeProfiles,
+                              cloudGistID: configStore.config.cloudGistID,
                               cloudPollSeconds: configStore.config.cloudPollSeconds)
         } else {
             claudeModel.stop()

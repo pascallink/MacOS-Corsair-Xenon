@@ -169,23 +169,35 @@ final class VolumeModel: ObservableObject {
 // MARK: - Claude Code usage (local logs)
 
 final class ClaudeUsageModel: ObservableObject {
-    @Published var snapshot = ClaudeUsageSnapshot()
-    /// True once at least one entry has come back from the cloud relay, so
+    /// One entry per tracked profile. With no `claudeProfiles` configured
+    /// this holds exactly one auto-detected profile, which is what keeps the
+    /// single-profile panel and behaviour unchanged.
+    @Published var profileUsages: [ClaudeUsageReader.ProfileUsage] = []
+    /// Profiles that have received at least one entry from a cloud relay, so
     /// the panel can show that it isn't showing local-only numbers.
-    @Published var usesCloudData = false
+    @Published var cloudProfileIDs: Set<UUID> = []
+
+    /// Stands in for the auto-detected profile when none are configured.
+    static let autoProfileID = UUID()
 
     private let reader = ClaudeUsageReader()
     private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
     private var timer: Timer?
     private var cloudTimer: Timer?
-    private var cloudEntries: [ClaudeUsageEntry] = []
-    private var cloudGistID = ""
+    private var cloudEntries: [UUID: [ClaudeUsageEntry]] = [:]
+    private var cloudSources: [(id: UUID, gistID: String)] = []
+    private var profiles: [ClaudeProfile] = []
 
     /// - Parameters:
+    ///   - profiles: Claude logins tracked separately; empty auto-detects one.
     ///   - cloudGistID: Empty disables the cloud relay (default, local-only).
-    ///   - cloudPollSeconds: Clamped to >=60s (GitHub's unauthenticated rate limit).
-    func start(cloudGistID: String = "", cloudPollSeconds: Double = 90) {
-        configureCloud(gistID: cloudGistID, pollSeconds: cloudPollSeconds)
+    ///     Ignored when `profiles` is set — each profile brings its own gist.
+    ///   - cloudPollSeconds: Clamped to >=60s per polled gist (GitHub's
+    ///     unauthenticated rate limit is 60 requests/hour/IP).
+    func start(profiles: [ClaudeProfile] = [], cloudGistID: String = "",
+               cloudPollSeconds: Double = 90) {
+        configureCloud(profiles: profiles, gistID: cloudGistID,
+                       pollSeconds: cloudPollSeconds)
         guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
@@ -198,22 +210,54 @@ final class ClaudeUsageModel: ObservableObject {
         timer = nil
         cloudTimer?.invalidate()
         cloudTimer = nil
-        cloudEntries = []
-        cloudGistID = ""
-        usesCloudData = false
+        cloudEntries = [:]
+        cloudSources = []
+        profiles = []
+        cloudProfileIDs = []
     }
 
-    private func configureCloud(gistID: String, pollSeconds: Double) {
-        let trimmed = gistID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != cloudGistID else { return }
-        cloudGistID = trimmed
-        cloudEntries = []
-        usesCloudData = false
+    /// Which gists to poll, and for which profile. Without configured
+    /// profiles the top-level gist feeds the auto-detected profile; with
+    /// profiles each one brings its own and the top-level field would be
+    /// ambiguous, so it is ignored (loudly, not silently).
+    private static func cloudSources(profiles: [ClaudeProfile],
+                                     gistID: String) -> [(id: UUID, gistID: String)] {
+        let topLevel = gistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !profiles.isEmpty else {
+            return topLevel.isEmpty ? [] : [(autoProfileID, topLevel)]
+        }
+        if !topLevel.isEmpty {
+            NSLog("XeneonEdge: cloudGistID is ignored while claudeProfiles is set — "
+                + "give the profile its own cloudGistID instead")
+        }
+        return profiles.compactMap { profile in
+            let gist = profile.cloudGistID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return gist.isEmpty ? nil : (profile.id, gist)
+        }
+    }
+
+    private func configureCloud(profiles: [ClaudeProfile], gistID: String,
+                                pollSeconds: Double) {
+        let sources = Self.cloudSources(profiles: profiles, gistID: gistID)
+        let unchanged = profiles == self.profiles
+            && sources.count == cloudSources.count
+            && zip(sources, cloudSources).allSatisfy { $0.id == $1.id && $0.gistID == $1.gistID }
+        guard !unchanged else { return }
+
+        self.profiles = profiles
+        cloudSources = sources
+        cloudEntries = [:]
+        cloudProfileIDs = []
         cloudTimer?.invalidate()
         cloudTimer = nil
-        guard !trimmed.isEmpty else { return }
+        refresh()
+        guard !sources.isEmpty else { return }
 
-        let interval = min(max(pollSeconds, 60), 900)
+        // Every poll hits one gist per source, so the floor scales with the
+        // number of sources: GitHub allows 60 unauthenticated requests per
+        // hour and IP, and two profiles polled every 90s would be 80.
+        let floor = 60 * Double(sources.count)
+        let interval = min(max(pollSeconds, floor), 900)
         pollCloud()
         cloudTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.pollCloud()
@@ -221,28 +265,62 @@ final class ClaudeUsageModel: ObservableObject {
     }
 
     private func pollCloud() {
-        let gistID = cloudGistID
-        guard !gistID.isEmpty else { return }
+        let sources = cloudSources
+        guard !sources.isEmpty else { return }
         Task { [weak self] in
-            let entries = await CloudUsageFetcher.fetch(gistID: gistID)
-            await MainActor.run {
-                guard let self, self.cloudGistID == gistID else { return }
-                self.cloudEntries = entries
-                self.usesCloudData = !entries.isEmpty
-                self.refresh()
+            for source in sources {
+                let entries = await CloudUsageFetcher.fetch(gistID: source.gistID)
+                await MainActor.run {
+                    guard let self,
+                          self.cloudSources.contains(where: {
+                              $0.id == source.id && $0.gistID == source.gistID
+                          })
+                    else { return }
+                    self.cloudEntries[source.id] = entries
+                    if entries.isEmpty {
+                        self.cloudProfileIDs.remove(source.id)
+                    } else {
+                        self.cloudProfileIDs.insert(source.id)
+                    }
+                    self.refresh()
+                }
             }
         }
     }
 
     private func refresh() {
         let cloud = cloudEntries
+        let profiles = self.profiles
         queue.async { [weak self] in
             guard let self else { return }
-            let snap = self.reader.snapshot(additionalEntries: cloud)
-            DispatchQueue.main.async { self.snapshot = snap }
+            let usages: [ClaudeUsageReader.ProfileUsage]
+            if profiles.isEmpty {
+                let snap = self.reader.snapshot(
+                    additionalEntries: cloud[Self.autoProfileID] ?? [])
+                usages = [ClaudeUsageReader.ProfileUsage(id: Self.autoProfileID,
+                                                         name: "", snapshot: snap)]
+            } else {
+                usages = self.reader.snapshots(for: profiles, additionalEntries: cloud)
+            }
+            DispatchQueue.main.async { self.profileUsages = usages }
         }
     }
+
+    // MARK: Display helpers
+
+    /// True once more than one profile is tracked; the panel then switches to
+    /// the stacked per-profile layout.
+    var isMultiProfile: Bool { profileUsages.count > 1 }
+
+    var usesCloudData: Bool { !cloudProfileIDs.isEmpty }
+
+    /// The single-profile panel reads this; with several profiles it is the
+    /// first one, which the stacked layout does not use.
+    var snapshot: ClaudeUsageSnapshot {
+        profileUsages.first?.snapshot ?? ClaudeUsageSnapshot()
+    }
 }
+
 
 // MARK: - Weather (Open-Meteo, key-less public API)
 

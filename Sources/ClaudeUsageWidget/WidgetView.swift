@@ -23,12 +23,12 @@ struct WidgetView: View {
     @ObservedObject var model: UsageViewModel
 
     var body: some View {
-        HStack(spacing: 18) {
-            tokenGauge
-            Divider().overlay(WidgetTheme.border)
-            metrics
-            Spacer(minLength: 0)
-            badges
+        Group {
+            if model.isMultiProfile {
+                profileList
+            } else {
+                singleProfile
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,6 +38,124 @@ struct WidgetView: View {
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(WidgetTheme.border))
         )
         .preferredColorScheme(.dark)
+    }
+
+    private var singleProfile: some View {
+        HStack(spacing: 18) {
+            tokenGauge
+            Divider().overlay(WidgetTheme.border)
+            metrics
+            Spacer(minLength: 0)
+            badges
+        }
+    }
+
+    // MARK: Several profiles: one compact row each
+    //
+    // Every profile keeps its own 5h window, so each row carries its own
+    // token count, its own bar and its own reset countdown. Nothing here is
+    // ever summed across rows — that number would belong to no real limit.
+
+    private var profileList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(model.profileUsages) { usage in
+                profileRow(usage)
+                if usage.id != model.profileUsages.last?.id {
+                    Divider().overlay(WidgetTheme.border).padding(.vertical, 8)
+                }
+            }
+            Spacer(minLength: 0)
+            Text("Kosten geschätzt · je Profil eigenes 5-h-Fenster")
+                .font(.system(size: 10))
+                .foregroundColor(WidgetTheme.textSecondary.opacity(0.7))
+        }
+    }
+
+    private func rowColor(_ fraction: Double?) -> Color {
+        guard let fraction else { return WidgetTheme.accent }
+        if fraction >= 0.9 { return WidgetTheme.critical }
+        if fraction >= 0.7 { return WidgetTheme.warn }
+        return WidgetTheme.good
+    }
+
+    private func profileRow(_ usage: ClaudeUsageReader.ProfileUsage) -> some View {
+        let snapshot = usage.snapshot
+        let budget = model.budgetFraction(snapshot)
+        let fill = budget ?? model.blockElapsedFraction(snapshot)
+        let color = rowColor(budget)
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(usage.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(WidgetTheme.textPrimary)
+                    .lineLimit(1)
+                if let plan = model.planName(snapshot) {
+                    Text(plan)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(WidgetTheme.textSecondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.white.opacity(0.10)))
+                }
+                if model.cloudProfileIDs.contains(usage.id) {
+                    Image(systemName: "icloud")
+                        .font(.system(size: 10))
+                        .foregroundColor(WidgetTheme.textSecondary)
+                }
+                Spacer(minLength: 4)
+                Text(UsageViewModel.tokenString(model.blockTokens(snapshot)))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(WidgetTheme.textPrimary)
+                Text("Tokens")
+                    .font(.system(size: 10))
+                    .foregroundColor(WidgetTheme.textSecondary)
+            }
+
+            bar(fraction: fill, color: color)
+
+            HStack(spacing: 8) {
+                if snapshot.activeBlock == nil {
+                    Text("keine aktive Session")
+                        .font(.system(size: 11))
+                        .foregroundColor(WidgetTheme.textSecondary)
+                } else {
+                    Text("Reset in \(model.resetCountdown(snapshot))")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundColor(WidgetTheme.textSecondary)
+                }
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundColor(WidgetTheme.textSecondary.opacity(0.6))
+                Text(UsageViewModel.costString(snapshot.activeBlock?.totals.costUSD ?? 0))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundColor(WidgetTheme.textSecondary)
+                Spacer(minLength: 0)
+                if snapshot.latestModel != nil {
+                    Text(model.modelName(snapshot))
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(WidgetTheme.accent))
+                }
+            }
+        }
+    }
+
+    private func bar(fraction: Double, color: Color) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.10))
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(0, min(fraction, 1)) * geometry.size.width)
+            }
+        }
+        .frame(height: 6)
     }
 
     // MARK: Left: token ring / 5h window

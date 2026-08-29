@@ -190,3 +190,190 @@ import Testing
         #expect(snap.latestModel == "claude-opus-5")
     }
 }
+
+// MARK: - Several Claude profiles
+
+@Suite struct ClaudeProfileTests {
+    /// Builds a throwaway Claude config directory holding one transcript.
+    private func makeProfile(lines: [String], credentialsPlan: String? = nil) throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xeneon-profile-\(UUID().uuidString)")
+        let projects = base.appendingPathComponent("projects/demo")
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        try lines.joined(separator: "\n")
+            .write(to: projects.appendingPathComponent("session.jsonl"),
+                   atomically: true, encoding: .utf8)
+        if let credentialsPlan {
+            let json = #"{"claudeAiOauth":{"subscriptionType":"\#(credentialsPlan)"}}"#
+            try json.write(to: base.appendingPathComponent(".credentials.json"),
+                           atomically: true, encoding: .utf8)
+        }
+        return base
+    }
+
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func line(at date: Date, input: Int, messageID: String) -> String {
+        """
+        {"type":"assistant","timestamp":"\(iso(date))","requestId":"req_\(messageID)",\
+        "message":{"id":"\(messageID)","model":"claude-opus-5","usage":{"input_tokens":\(input),\
+        "output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        """
+    }
+
+    /// The whole point of the feature: two logins have independent 5h limits,
+    /// so their entries must never land in a shared block — not even when
+    /// they are used minutes apart and would otherwise group together.
+    @Test func overlappingProfilesKeepSeparateBlocks() throws {
+        let now = Date()
+        let privateDir = try makeProfile(lines: [
+            line(at: now.addingTimeInterval(-600), input: 100, messageID: "p1"),
+            line(at: now.addingTimeInterval(-300), input: 200, messageID: "p2"),
+        ])
+        let workDir = try makeProfile(lines: [
+            line(at: now.addingTimeInterval(-540), input: 7, messageID: "w1"),
+        ])
+        defer {
+            try? FileManager.default.removeItem(at: privateDir)
+            try? FileManager.default.removeItem(at: workDir)
+        }
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [
+            ClaudeProfile(name: "Privat", configDir: privateDir.path),
+            ClaudeProfile(name: "Arbeit", configDir: workDir.path),
+        ], now: now)
+
+        #expect(usages.count == 2)
+        #expect(usages[0].name == "Privat")
+        #expect(usages[1].name == "Arbeit")
+        // Each block holds only its own profile's tokens — 300 and 7, never 307.
+        #expect(usages[0].snapshot.activeBlock?.totals.inputTokens == 300)
+        #expect(usages[1].snapshot.activeBlock?.totals.inputTokens == 7)
+        #expect(usages[0].snapshot.activeBlock?.totals.entryCount == 2)
+        #expect(usages[1].snapshot.activeBlock?.totals.entryCount == 1)
+        #expect(usages[0].snapshot.today.inputTokens == 300)
+        #expect(usages[1].snapshot.today.inputTokens == 7)
+    }
+
+    /// A profile reads its own directory only; another profile's transcripts
+    /// must not leak in.
+    @Test func profileReadsOnlyItsOwnDirectory() throws {
+        let now = Date()
+        let dirA = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 42, messageID: "a")])
+        let dirB = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 99, messageID: "b")])
+        defer {
+            try? FileManager.default.removeItem(at: dirA)
+            try? FileManager.default.removeItem(at: dirB)
+        }
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [ClaudeProfile(name: "A", configDir: dirA.path)], now: now)
+        #expect(usages.count == 1)
+        #expect(usages[0].snapshot.today.inputTokens == 42)
+    }
+
+    /// Plans differ per login (e.g. Pro privately, Max at work), so the plan
+    /// name is read per profile rather than "first one wins".
+    @Test func planNameIsReadPerProfile() throws {
+        let now = Date()
+        let proDir = try makeProfile(
+            lines: [line(at: now.addingTimeInterval(-120), input: 1, messageID: "x")],
+            credentialsPlan: "pro")
+        let maxDir = try makeProfile(
+            lines: [line(at: now.addingTimeInterval(-120), input: 1, messageID: "y")],
+            credentialsPlan: "max")
+        defer {
+            try? FileManager.default.removeItem(at: proDir)
+            try? FileManager.default.removeItem(at: maxDir)
+        }
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [
+            ClaudeProfile(name: "Privat", configDir: proDir.path),
+            ClaudeProfile(name: "Arbeit", configDir: maxDir.path),
+        ], now: now)
+        #expect(usages[0].snapshot.subscriptionType == "pro")
+        #expect(usages[1].snapshot.subscriptionType == "max")
+    }
+
+    /// A missing .credentials.json (the normal case on macOS, where the
+    /// credentials live in the Keychain) means "plan unknown", not a crash
+    /// and not a wrong label.
+    @Test func missingCredentialsFileLeavesPlanUnknown() throws {
+        let now = Date()
+        let dir = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 1, messageID: "z")])
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [ClaudeProfile(name: "A", configDir: dir.path)], now: now)
+        #expect(usages[0].snapshot.subscriptionType == nil)
+    }
+
+    @Test func cloudEntriesAreFoldedIntoTheirOwnProfile() throws {
+        let now = Date()
+        let dirA = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 10, messageID: "a")])
+        let dirB = try makeProfile(lines: [line(at: now.addingTimeInterval(-120), input: 20, messageID: "b")])
+        defer {
+            try? FileManager.default.removeItem(at: dirA)
+            try? FileManager.default.removeItem(at: dirB)
+        }
+
+        let profileA = ClaudeProfile(name: "A", configDir: dirA.path)
+        let profileB = ClaudeProfile(name: "B", configDir: dirB.path)
+        let cloudEntry = ClaudeUsageEntry(timestamp: now.addingTimeInterval(-60),
+                                          model: "claude-opus-5", inputTokens: 500,
+                                          outputTokens: 0, cacheCreationTokens: 0,
+                                          cacheReadTokens: 0)
+
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let usages = reader.snapshots(for: [profileA, profileB], now: now,
+                                      additionalEntries: [profileB.id: [cloudEntry]])
+        #expect(usages[0].snapshot.today.inputTokens == 10)
+        #expect(usages[1].snapshot.today.inputTokens == 520)
+    }
+
+    // MARK: Config decoding
+
+    /// Configs written before this feature have no `claudeProfiles` key and
+    /// must keep working, falling back to single-profile auto-detection.
+    @Test func configWithoutProfilesDecodesToEmpty() throws {
+        let json = #"{"touchRotation": 90}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles.isEmpty)
+        #expect(decoded.touchRotation == 90)
+    }
+
+    /// Hand-written entries may be as short as a directory; the label then
+    /// comes from the directory name and the id is generated.
+    @Test func profileWithoutNameOrIDDecodes() throws {
+        let json = #"{"claudeProfiles": [{"configDir": "~/.claude-work"}]}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles.count == 1)
+        #expect(decoded.claudeProfiles[0].name == "claude-work")
+        #expect(decoded.claudeProfiles[0].configDir == "~/.claude-work")
+        #expect(decoded.claudeProfiles[0].cloudGistID == "")
+    }
+
+    @Test func profileTildeIsExpanded() {
+        let profile = ClaudeProfile(name: "Arbeit", configDir: "~/.claude-work")
+        #expect(!profile.directoryURL.path.contains("~"))
+        #expect(profile.directoryURL.path.hasSuffix("/.claude-work"))
+    }
+
+    @Test func profilesSurviveAConfigRoundTrip() throws {
+        var config = AppConfig()
+        config.claudeProfiles = [
+            ClaudeProfile(name: "Privat", configDir: "~/.claude"),
+            ClaudeProfile(name: "Arbeit", configDir: "~/.claude-work", cloudGistID: "abc123"),
+        ]
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded == config)
+        #expect(decoded.claudeProfiles[1].cloudGistID == "abc123")
+    }
+}
