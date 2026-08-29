@@ -238,6 +238,16 @@ Gist zusätzlich zu den lokalen Logs mit.
   (`CLAUDE_CONFIG_DIR` bzw. `claudeProfiles` werden respektiert), plus
   optional die per Cloud-Relay angebundenen Remote-Sessions (siehe oben) —
   jede Umgebung, die weder hier noch dort erfasst ist, bleibt unsichtbar.
+- **Die offizielle Claude-Desktop-App (Electron) wird nicht erfasst** — auch
+  nicht, wenn sie über eigene `--user-data-dir`-Profile (z. B. für
+  privat/geschäftlich getrennte Logins) gestartet wird. Diese Ordner
+  enthalten Electron-interne Daten (IndexedDB, LevelDB, LocalStorage), aber
+  keine `projects/*.jsonl`-Transkripte — die Desktop-App berechnet ihr 5-h-
+  Limit serverseitig bei Anthropic und schreibt dafür lokal kein parsebares
+  Log. Ein Eintrag eines solchen Ordners unter `claudeProfiles` würde daher
+  nur ein dauerhaft leeres Profil erzeugen (`ClaudeUsageReader` findet kein
+  `projects`-Verzeichnis und überspringt ihn). Verbrauch der Desktop-App ist
+  ausschließlich in der App selbst einsehbar (Konto-/Einstellungsmenü).
 - Der **Plan-Name** (Pro/Max) stammt aus `.credentials.json` im jeweiligen
   Profilverzeichnis. Auf macOS legt Claude Code die Zugangsdaten oft im
   Schlüsselbund statt in dieser Datei ab — dann fehlt die Datei und das
