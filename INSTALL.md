@@ -47,7 +47,7 @@ Es wird **kein** Apple-Developer-Account benötigt:
 ```bash
 git clone https://github.com/pascallink/MacOS-Corsair-Xenon.git
 cd MacOS-Corsair-Xenon
-./Scripts/bundle-app.sh      # baut dist/XeneonEdge.app und dist/xeneonctl
+./Scripts/bundle-app.sh      # baut XeneonEdge.app, ClaudeUsageWidget.app, xeneonctl
 ./Scripts/install.sh         # kopiert nach /Applications, richtet Autostart ein
 ```
 
@@ -147,7 +147,33 @@ Dafür sorgen mehrere Schichten:
 (siehe LICENSE). Auf echter Hardware noch jung — bitte Probleme mit der
 Ausgabe von `xeneonctl probe` als GitHub-Issue melden.
 
-## 5a. Widgets des Dashboards anpassen
+## 5a. Aktualisieren (neue Version einspielen)
+
+Die installierte App ist ein kompiliertes Programm — Änderungen am Quellcode
+wirken erst nach einem Neubau:
+
+```bash
+cd MacOS-Corsair-Xenon
+git pull
+./Scripts/bundle-app.sh      # neu bauen
+./Scripts/install.sh         # ersetzen + neu starten
+```
+
+`install.sh` beendet dabei die laufenden Instanzen, ersetzt
+`XeneonEdge.app`, `ClaudeUsageWidget.app` und `xeneonctl` und startet die
+Menüleisten-App über den LaunchAgent neu.
+
+Ohne Installation nach `/Applications` genügt auch:
+`open dist/XeneonEdge.app` bzw. `open dist/ClaudeUsageWidget.app`
+(vorher die alte Instanz beenden).
+
+**Wichtig:** Beim Neubau ändert sich die Ad-hoc-Signatur, deshalb kann macOS
+die Berechtigungen (Bedienungshilfen, Eingabemonitoring) erneut verlangen.
+Falls der Touch danach nicht reagiert: unter *Systemeinstellungen →
+Datenschutz & Sicherheit* den alten Eintrag mit „−“ entfernen und neu
+erteilen. Deine Konfigurationsdateien bleiben beim Update erhalten.
+
+## 5b. Widgets des Dashboards anpassen
 
 Die Dashboard-Konfiguration liegt in
 `~/Library/Application Support/XeneonEdge/config.json` (Menüleiste →
