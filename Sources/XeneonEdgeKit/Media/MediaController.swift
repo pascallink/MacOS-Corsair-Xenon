@@ -15,6 +15,8 @@ public struct NowPlaying: Equatable {
     public var appName = ""
     public var isPlaying = false
     public var isAvailable = false
+
+    public init() {}
 }
 
 public final class MediaController {

@@ -17,6 +17,8 @@ public struct SystemSnapshot {
     public var networkTxBytesPerSecond: Double = 0
     public var uptime: TimeInterval = 0
 
+    public init() {}
+
     public var memoryUsage: Double {
         memoryTotal > 0 ? Double(memoryUsed) / Double(memoryTotal) : 0
     }

@@ -25,8 +25,17 @@ cp Resources/Info.plist "${APP}/Contents/Info.plist"
 # Ad-hoc signature so TCC (Accessibility/Input Monitoring) remembers the app.
 codesign --force --deep --sign - "${APP}"
 
+WIDGET_APP="${OUT_DIR}/ClaudeUsageWidget.app"
+echo "==> assembling ${WIDGET_APP}"
+rm -rf "${WIDGET_APP}"
+mkdir -p "${WIDGET_APP}/Contents/MacOS" "${WIDGET_APP}/Contents/Resources"
+cp "${BUILD_DIR}/ClaudeUsageWidget" "${WIDGET_APP}/Contents/MacOS/ClaudeUsageWidget"
+cp Resources/ClaudeWidget-Info.plist "${WIDGET_APP}/Contents/Info.plist"
+codesign --force --deep --sign - "${WIDGET_APP}"
+
 echo "==> done:"
 echo "    ${APP}"
+echo "    ${WIDGET_APP}"
 echo "    ${OUT_DIR}/xeneonctl"
 echo
 echo "Beim ersten Start fragt macOS nach Berechtigungen:"

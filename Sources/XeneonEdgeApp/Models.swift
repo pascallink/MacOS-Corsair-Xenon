@@ -13,11 +13,49 @@ import XeneonEdgeKit
 
 final class ConfigStore: ObservableObject {
     @Published var config: AppConfig {
-        didSet { config.save() }
+        didSet {
+            // Swift calls didSet for an assignment made from within init()
+            // itself, not just for changes after it — so without this guard,
+            // loading a config that fails to decode (e.g. a hand-edit typo)
+            // would immediately save the resulting defaults right back over
+            // the user's file, destroying it before they get a chance to
+            // fix the typo. Only a real, user-driven change may save.
+            guard !isLoading else { return }
+            do {
+                try config.save()
+            } catch {
+                NSLog("XeneonEdge: could not save config.json: \(error)")
+                lastSaveError = "\(error)"
+                DispatchQueue.main.async {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Konfiguration konnte nicht gespeichert werden"
+                    alert.informativeText = "\(error)\n\nDie Änderung gilt nur für diese Sitzung "
+                        + "und geht beim nächsten Start verloren."
+                    alert.runModal()
+                }
+            }
+        }
     }
 
+    /// Set whenever a save fails, so the UI can surface it instead of the
+    /// change silently failing to persist.
+    @Published var lastSaveError: String?
+
+    private var isLoading = false
+
     init() {
+        isLoading = true
         config = AppConfig.load()
+        isLoading = false
+    }
+
+    /// Re-reads the file from disk after the user edited it by hand, without
+    /// writing the in-memory copy back over their changes.
+    func reload() {
+        isLoading = true
+        config = AppConfig.load()
+        isLoading = false
     }
 }
 
@@ -128,6 +166,84 @@ final class VolumeModel: ObservableObject {
     }
 }
 
+// MARK: - Claude Code usage (local logs)
+
+final class ClaudeUsageModel: ObservableObject {
+    @Published var snapshot = ClaudeUsageSnapshot()
+    /// True once at least one entry has come back from the cloud relay, so
+    /// the panel can show that it isn't showing local-only numbers.
+    @Published var usesCloudData = false
+
+    private let reader = ClaudeUsageReader()
+    private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
+    private var timer: Timer?
+    private var cloudTimer: Timer?
+    private var cloudEntries: [ClaudeUsageEntry] = []
+    private var cloudGistID = ""
+
+    /// - Parameters:
+    ///   - cloudGistID: Empty disables the cloud relay (default, local-only).
+    ///   - cloudPollSeconds: Clamped to >=60s (GitHub's unauthenticated rate limit).
+    func start(cloudGistID: String = "", cloudPollSeconds: Double = 90) {
+        configureCloud(gistID: cloudGistID, pollSeconds: cloudPollSeconds)
+        guard timer == nil else { return }
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        cloudTimer?.invalidate()
+        cloudTimer = nil
+        cloudEntries = []
+        cloudGistID = ""
+        usesCloudData = false
+    }
+
+    private func configureCloud(gistID: String, pollSeconds: Double) {
+        let trimmed = gistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != cloudGistID else { return }
+        cloudGistID = trimmed
+        cloudEntries = []
+        usesCloudData = false
+        cloudTimer?.invalidate()
+        cloudTimer = nil
+        guard !trimmed.isEmpty else { return }
+
+        let interval = min(max(pollSeconds, 60), 900)
+        pollCloud()
+        cloudTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.pollCloud()
+        }
+    }
+
+    private func pollCloud() {
+        let gistID = cloudGistID
+        guard !gistID.isEmpty else { return }
+        Task { [weak self] in
+            let entries = await CloudUsageFetcher.fetch(gistID: gistID)
+            await MainActor.run {
+                guard let self, self.cloudGistID == gistID else { return }
+                self.cloudEntries = entries
+                self.usesCloudData = !entries.isEmpty
+                self.refresh()
+            }
+        }
+    }
+
+    private func refresh() {
+        let cloud = cloudEntries
+        queue.async { [weak self] in
+            guard let self else { return }
+            let snap = self.reader.snapshot(additionalEntries: cloud)
+            DispatchQueue.main.async { self.snapshot = snap }
+        }
+    }
+}
+
 // MARK: - Weather (Open-Meteo, key-less public API)
 
 struct WeatherInfo: Equatable {
@@ -158,10 +274,13 @@ final class WeatherModel: ObservableObject {
     private var timer: Timer?
     private var latitude = 0.0
     private var longitude = 0.0
+    private var isRunning = false
 
     func start(latitude: Double, longitude: Double) {
+        if isRunning, latitude == self.latitude, longitude == self.longitude { return }
         self.latitude = latitude
         self.longitude = longitude
+        isRunning = true
         fetch()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 900, repeats: true) { [weak self] _ in
@@ -172,6 +291,7 @@ final class WeatherModel: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        isRunning = false
     }
 
     private func fetch() {

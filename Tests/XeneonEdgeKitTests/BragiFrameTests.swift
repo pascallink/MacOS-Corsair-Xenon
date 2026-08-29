@@ -51,13 +51,76 @@ final class BragiFrameTests: XCTestCase {
     }
 }
 
+final class WriteGateTests: XCTestCase {
+    func testReadCommandsPassTheGate() {
+        XCTAssertTrue(BragiDevice.isReadOnly(BragiFrame.get(property: 0x13)))
+        XCTAssertTrue(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.read)))
+    }
+
+    func testStateChangingCommandsAreBlocked() {
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.set(property: 0x03, value: [0x00, 0x02])))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.softwareMode)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.hardwareMode)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.openEndpoint)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw(BragiCommand.closeEndpoint)))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw([0xFF])))
+        XCTAssertFalse(BragiDevice.isReadOnly(BragiFrame.raw([])))
+    }
+}
+
 final class ConfigTests: XCTestCase {
+    /// JSON numbers may not have a leading zero (RFC 8259 §6) — a common
+    /// hand-edit slip (e.g. "08.37" instead of "8.37") makes the *entire*
+    /// file fail to decode, not just that one field. AppConfig.load() must
+    /// treat that as "use defaults for this run", not "reset the file" —
+    /// covered separately by the app's ConfigStore (AppKit, untestable
+    /// here), but the parsing behavior this bug hinges on is asserted here.
+    func testLeadingZeroNumberFailsToDecode() {
+        let json = #"{"weatherLongitude": 08.37}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8)))
+    }
+
     func testConfigRoundTrip() throws {
         var config = AppConfig()
         config.touchRotation = 180
         config.weatherPlaceName = "Hamburg"
+        config.showClaudeUsage = true
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
         XCTAssertEqual(decoded, config)
+    }
+
+    /// Configs written by older versions miss newer keys — customized values
+    /// must survive an update, missing fields fall back to defaults.
+    func testPartialConfigKeepsCustomValuesAndDefaultsTheRest() throws {
+        let json = #"{"touchRotation": 90, "showMedia": false}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.touchRotation, 90)
+        XCTAssertFalse(decoded.showMedia)
+        let defaults = AppConfig()
+        XCTAssertEqual(decoded.showClaudeUsage, defaults.showClaudeUsage)
+        XCTAssertEqual(decoded.weatherPlaceName, defaults.weatherPlaceName)
+        // Launcher items carry a generated id, so compare their contents.
+        XCTAssertEqual(decoded.launcherItems.map(\.target),
+                       defaults.launcherItems.map(\.target))
+    }
+
+    /// Hand-written launcher entries may omit the internal id.
+    func testLauncherItemWithoutIDDecodes() throws {
+        let json = #"{"name": "Steam", "target": "/Applications/Steam.app", "symbol": "gamecontroller"}"#
+        let item = try JSONDecoder().decode(LauncherItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.name, "Steam")
+        XCTAssertEqual(item.target, "/Applications/Steam.app")
+        XCTAssertEqual(item.symbol, "gamecontroller")
+    }
+
+    func testLauncherItemsSurviveConfigRoundTripWithoutIDs() throws {
+        let json = """
+        {"launcherItems": [{"name": "VS Code", "target": "com.microsoft.VSCode"}]}
+        """
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.launcherItems.count, 1)
+        XCTAssertEqual(decoded.launcherItems[0].name, "VS Code")
+        XCTAssertEqual(decoded.launcherItems[0].symbol, "app") // default symbol
     }
 }

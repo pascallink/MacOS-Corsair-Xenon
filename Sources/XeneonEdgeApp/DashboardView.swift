@@ -23,6 +23,7 @@ struct DashboardView: View {
     @EnvironmentObject var media: MediaModel
     @EnvironmentObject var volume: VolumeModel
     @EnvironmentObject var weather: WeatherModel
+    @EnvironmentObject var claude: ClaudeUsageModel
 
     var body: some View {
         GeometryReader { geo in
@@ -36,9 +37,11 @@ struct DashboardView: View {
                 if configStore.config.showStats {
                     StatsPanel()
                 }
-                if configStore.config.showMedia || configStore.config.showVolume {
+                if configStore.config.showMedia || configStore.config.showVolume
+                    || configStore.config.showClaudeUsage {
                     VStack(spacing: 16) {
                         if configStore.config.showMedia { MediaPanel() }
+                        if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
                         if configStore.config.showVolume { VolumePanel() }
                     }
                     .frame(maxWidth: geo.size.width * 0.26)
@@ -298,6 +301,99 @@ struct MediaButton: View {
                 .background(Circle().fill(prominent ? EdgeTheme.accent : Color.white.opacity(0.09)))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Claude Code usage
+
+struct ClaudeUsagePanel: View {
+    @EnvironmentObject var claude: ClaudeUsageModel
+    @EnvironmentObject var configStore: ConfigStore
+
+    private var block: UsageBlock? { claude.snapshot.activeBlock }
+
+    private var blockTokens: Int { block?.totals.billableTokens ?? 0 }
+
+    private var budgetFraction: Double? {
+        let budget = configStore.config.claudeTokenBudgetPerBlock
+        guard budget > 0 else { return nil }
+        return min(Double(blockTokens) / Double(budget), 1.0)
+    }
+
+    private var elapsedFraction: Double {
+        guard let block else { return 0 }
+        return min(max(Date().timeIntervalSince(block.start) / UsageBlock.duration, 0), 1)
+    }
+
+    private var ringColor: Color {
+        guard let fraction = budgetFraction else { return EdgeTheme.accent }
+        if fraction >= 0.9 { return Color(red: 0.92, green: 0.30, blue: 0.30) }
+        if fraction >= 0.7 { return Color(red: 0.95, green: 0.55, blue: 0.20) }
+        return Color(red: 0.35, green: 0.80, blue: 0.45)
+    }
+
+    var body: some View {
+        Panel(title: "Claude", systemImage: "gauge.with.needle") {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().stroke(Color.white.opacity(0.10), lineWidth: 9)
+                    Circle()
+                        .trim(from: 0, to: budgetFraction ?? elapsedFraction)
+                        .stroke(ringColor, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeOut(duration: 0.5), value: blockTokens)
+                    VStack(spacing: 0) {
+                        Text(UsageFormat.tokens(blockTokens))
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(EdgeTheme.textPrimary)
+                            .minimumScaleFactor(0.5)
+                        Text("Tokens")
+                            .font(.system(size: 10))
+                            .foregroundColor(EdgeTheme.textSecondary)
+                    }
+                }
+                .frame(width: 84, height: 84)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    if let block {
+                        Text("Reset in \(UsageFormat.countdown(block.remaining(at: Date())))")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(EdgeTheme.textPrimary)
+                        Text("Fenster \(UsageFormat.cost(block.totals.costUSD)) · heute \(UsageFormat.cost(claude.snapshot.today.costUSD))")
+                            .font(.system(size: 13))
+                            .foregroundColor(EdgeTheme.textSecondary)
+                    } else {
+                        Text("Keine aktive Session")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(EdgeTheme.textSecondary)
+                        Text("heute \(UsageFormat.cost(claude.snapshot.today.costUSD))")
+                            .font(.system(size: 13))
+                            .foregroundColor(EdgeTheme.textSecondary)
+                    }
+                    HStack(spacing: 6) {
+                        if let model = claude.snapshot.latestModel {
+                            Text(ModelPricing.displayName(for: model))
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(EdgeTheme.accent))
+                        }
+                        if claude.usesCloudData {
+                            Label("Cloud", systemImage: "icloud")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(EdgeTheme.textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.white.opacity(0.08)))
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 }
 

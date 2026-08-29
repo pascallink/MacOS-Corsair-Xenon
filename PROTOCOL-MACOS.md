@@ -45,9 +45,13 @@ Das XENEON EDGE meldet sich am USB-Bus als **mehrere unabhängige Geräte**:
 | Endpoint schließen | `0x05 0x01 0x01` | Kandidat |
 | Blockdaten lesen | `0x08 0x01` | Kandidat |
 
-Schreibkommandos, die den Gerätezustand ändern, werden von dieser App nur auf
-ausdrückliche Nutzeraktion gesendet (Menü „Gerät abfragen“ sendet nur den
-verifizierten GET).
+**Write-Gate (Firmware-Schutz):** Der HID-Transport (`BragiDevice.send`)
+lässt nur die lesenden Kommandos `0x02` (GET) und `0x08` (Block-Read) durch.
+Alle zustandsändernden Kommandos (SET, Modewechsel, Endpoints) werden mit
+`BragiError.writesDisabled` abgewiesen, solange nicht das Entwickler-Flag
+`dangerouslyAllowWrites` gesetzt wird — was weder App noch CLI je tun.
+Firmware-/Flash-Kommandos sind in diesem Projekt nicht implementiert.
+Das Gate ist durch Unit-Tests (`WriteGateTests`) abgesichert.
 
 ## DDC/CI
 
