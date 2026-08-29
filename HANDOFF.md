@@ -169,7 +169,7 @@ git clone https://github.com/pascallink/MacOS-Corsair-Xenon.git
 cd MacOS-Corsair-Xenon
 git checkout claude/corsair-xenon-edge-macos-4jjvf9
 swift build            # oder: ./Scripts/bundle-app.sh für App-Bundles
-swift test              # alle Unit-Tests (aktuell: grün, siehe CI)
+./Scripts/test.sh       # alle Unit-Tests (swift-testing, läuft ohne Xcode)
 ```
 
 CI-Status prüfen: GitHub-MCP-Tools (`actions_list` mit

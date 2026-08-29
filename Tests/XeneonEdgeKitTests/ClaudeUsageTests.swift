@@ -1,10 +1,11 @@
 // XeneonEdge for macOS
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import XCTest
+import Foundation
+import Testing
 @testable import XeneonEdgeKit
 
-final class ClaudeUsageParserTests: XCTestCase {
+@Suite struct ClaudeUsageParserTests {
     private func line(timestamp: String, model: String = "claude-opus-5",
                       input: Int = 10, output: Int = 20,
                       cacheWrite: Int = 0, cacheRead: Int = 0,
@@ -17,118 +18,118 @@ final class ClaudeUsageParserTests: XCTestCase {
         """
     }
 
-    func testParsesAssistantLine() throws {
-        let parsed = try XCTUnwrap(ClaudeUsageReader.parseLine(
+    @Test func parsesAssistantLine() throws {
+        let parsed = try #require(ClaudeUsageReader.parseLine(
             line(timestamp: "2026-08-23T10:00:00.123Z", input: 100, output: 50,
                  cacheWrite: 5, cacheRead: 7)
         ))
-        XCTAssertEqual(parsed.entry.inputTokens, 100)
-        XCTAssertEqual(parsed.entry.outputTokens, 50)
-        XCTAssertEqual(parsed.entry.cacheCreationTokens, 5)
-        XCTAssertEqual(parsed.entry.cacheReadTokens, 7)
-        XCTAssertEqual(parsed.entry.model, "claude-opus-5")
-        XCTAssertEqual(parsed.entry.totalTokens, 162)
-        XCTAssertEqual(parsed.dedupKey, "msg_1:req_1")
+        #expect(parsed.entry.inputTokens == 100)
+        #expect(parsed.entry.outputTokens == 50)
+        #expect(parsed.entry.cacheCreationTokens == 5)
+        #expect(parsed.entry.cacheReadTokens == 7)
+        #expect(parsed.entry.model == "claude-opus-5")
+        #expect(parsed.entry.totalTokens == 162)
+        #expect(parsed.dedupKey == "msg_1:req_1")
     }
 
-    func testParsesTimestampWithoutFraction() {
-        XCTAssertNotNil(ClaudeUsageReader.parseLine(line(timestamp: "2026-08-23T10:00:00Z")))
+    @Test func parsesTimestampWithoutFraction() {
+        #expect(ClaudeUsageReader.parseLine(line(timestamp: "2026-08-23T10:00:00Z")) != nil)
     }
 
-    func testIgnoresNonAssistantLines() {
-        XCTAssertNil(ClaudeUsageReader.parseLine(
+    @Test func ignoresNonAssistantLines() {
+        #expect(ClaudeUsageReader.parseLine(
             #"{"type":"user","timestamp":"2026-08-23T10:00:00Z","message":{}}"#
-        ))
-        XCTAssertNil(ClaudeUsageReader.parseLine("not json"))
-        XCTAssertNil(ClaudeUsageReader.parseLine(""))
+        ) == nil)
+        #expect(ClaudeUsageReader.parseLine("not json") == nil)
+        #expect(ClaudeUsageReader.parseLine("") == nil)
     }
 
-    func testCostEstimation() {
+    @Test func costEstimation() {
         // Opus 5: $5 in / $25 out per MTok.
         let entry = ClaudeUsageEntry(timestamp: Date(), model: "claude-opus-5",
                                      inputTokens: 1_000_000, outputTokens: 1_000_000,
                                      cacheCreationTokens: 0, cacheReadTokens: 0)
-        XCTAssertEqual(entry.estimatedCost, 30.0, accuracy: 0.001)
+        #expect(abs(entry.estimatedCost - 30.0) <= 0.001)
 
         // Recorded costUSD wins over the estimate.
         let recorded = ClaudeUsageEntry(timestamp: Date(), model: "claude-opus-5",
                                         inputTokens: 1_000_000, outputTokens: 0,
                                         cacheCreationTokens: 0, cacheReadTokens: 0,
                                         costUSD: 1.23)
-        XCTAssertEqual(recorded.estimatedCost, 1.23, accuracy: 0.001)
+        #expect(abs(recorded.estimatedCost - 1.23) <= 0.001)
     }
 
-    func testPricingSelection() {
-        XCTAssertEqual(ModelPricing.forModel("claude-fable-5"), ModelPricing.fable)
-        XCTAssertEqual(ModelPricing.forModel("claude-opus-5"), ModelPricing.opus)
-        XCTAssertEqual(ModelPricing.forModel("claude-opus-4-1-20250805"), ModelPricing.opusLegacy)
-        XCTAssertEqual(ModelPricing.forModel("claude-sonnet-5"), ModelPricing.sonnet)
-        XCTAssertEqual(ModelPricing.forModel("claude-haiku-4-5"), ModelPricing.haiku)
+    @Test func pricingSelection() {
+        #expect(ModelPricing.forModel("claude-fable-5") == ModelPricing.fable)
+        #expect(ModelPricing.forModel("claude-opus-5") == ModelPricing.opus)
+        #expect(ModelPricing.forModel("claude-opus-4-1-20250805") == ModelPricing.opusLegacy)
+        #expect(ModelPricing.forModel("claude-sonnet-5") == ModelPricing.sonnet)
+        #expect(ModelPricing.forModel("claude-haiku-4-5") == ModelPricing.haiku)
     }
 
-    func testDisplayName() {
-        XCTAssertEqual(ModelPricing.displayName(for: "claude-opus-5"), "Opus 5")
-        XCTAssertEqual(ModelPricing.displayName(for: "claude-sonnet-4-6"), "Sonnet 4.6")
-        XCTAssertEqual(ModelPricing.displayName(for: "claude-haiku-4-5-20251001"), "Haiku 4.5")
-        XCTAssertEqual(ModelPricing.displayName(for: "claude-fable-5"), "Fable 5")
+    @Test func displayName() {
+        #expect(ModelPricing.displayName(for: "claude-opus-5") == "Opus 5")
+        #expect(ModelPricing.displayName(for: "claude-sonnet-4-6") == "Sonnet 4.6")
+        #expect(ModelPricing.displayName(for: "claude-haiku-4-5-20251001") == "Haiku 4.5")
+        #expect(ModelPricing.displayName(for: "claude-fable-5") == "Fable 5")
     }
 }
 
-final class UsageBlockTests: XCTestCase {
+@Suite struct UsageBlockTests {
     private func entry(atMinutes minutes: Double, tokens: Int = 10) -> ClaudeUsageEntry {
         ClaudeUsageEntry(timestamp: Date(timeIntervalSince1970: 1_000_000_000 + minutes * 60),
                          model: "claude-opus-5", inputTokens: tokens, outputTokens: 0,
                          cacheCreationTokens: 0, cacheReadTokens: 0)
     }
 
-    func testEntriesWithinFiveHoursShareABlock() {
+    @Test func entriesWithinFiveHoursShareABlock() {
         let blocks = UsageBlock.build(from: [
             entry(atMinutes: 0), entry(atMinutes: 60), entry(atMinutes: 240),
         ])
-        XCTAssertEqual(blocks.count, 1)
-        XCTAssertEqual(blocks[0].totals.inputTokens, 30)
+        #expect(blocks.count == 1)
+        #expect(blocks[0].totals.inputTokens == 30)
     }
 
-    func testGapStartsNewBlock() {
+    @Test func gapStartsNewBlock() {
         let blocks = UsageBlock.build(from: [
             entry(atMinutes: 0),
             entry(atMinutes: 400), // > 5h after block start AND after last activity
         ])
-        XCTAssertEqual(blocks.count, 2)
+        #expect(blocks.count == 2)
     }
 
-    func testBlockStartIsFlooredToHour() {
+    @Test func blockStartIsFlooredToHour() {
         let ts = Date(timeIntervalSince1970: 1_000_000_000 + 42 * 60) // hh:42
         let blocks = UsageBlock.build(from: [
             ClaudeUsageEntry(timestamp: ts, model: "m", inputTokens: 1, outputTokens: 0,
                              cacheCreationTokens: 0, cacheReadTokens: 0)
         ])
-        XCTAssertEqual(blocks[0].start, UsageBlock.floorToHour(ts))
-        XCTAssertEqual(blocks[0].start.timeIntervalSince1970
-                        .truncatingRemainder(dividingBy: 3600), 0)
+        #expect(blocks[0].start == UsageBlock.floorToHour(ts))
+        #expect(blocks[0].start.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: 3600) == 0)
     }
 
-    func testActiveBlockAndRemainingTime() {
+    @Test func activeBlockAndRemainingTime() {
         let now = Date(timeIntervalSince1970: 1_000_000_000 + 60 * 60)
         let blocks = UsageBlock.build(from: [entry(atMinutes: 0)])
         let block = blocks[0]
-        XCTAssertTrue(block.isActive(at: now))
+        #expect(block.isActive(at: now))
         // Block start is floored to the hour containing t0; 4h remain of 5h.
-        XCTAssertEqual(block.remaining(at: now), 4 * 3600,
-                       accuracy: 3600) // within the flooring tolerance
-        XCTAssertFalse(block.isActive(at: now.addingTimeInterval(6 * 3600)))
+        // Tolerance covers the flooring.
+        #expect(abs(block.remaining(at: now) - 4 * 3600) <= 3600)
+        #expect(!block.isActive(at: now.addingTimeInterval(6 * 3600)))
     }
 
-    func testUnsortedInput() {
+    @Test func unsortedInput() {
         let blocks = UsageBlock.build(from: [
             entry(atMinutes: 240), entry(atMinutes: 0), entry(atMinutes: 60),
         ])
-        XCTAssertEqual(blocks.count, 1)
-        XCTAssertEqual(blocks[0].totals.entryCount, 3)
+        #expect(blocks.count == 1)
+        #expect(blocks[0].totals.entryCount == 3)
     }
 }
 
-final class CloudUsageFetcherTests: XCTestCase {
+@Suite struct CloudUsageFetcherTests {
     private func gistLine(timestamp: String, model: String = "claude-opus-5",
                           input: Int = 10, output: Int = 20,
                           messageID: String = "msg_1", requestID: String = "req_1") -> String {
@@ -147,7 +148,7 @@ final class CloudUsageFetcherTests: XCTestCase {
         return Data("{\"files\": {\(filesJSON)}}".utf8)
     }
 
-    func testParsesFilesFromGistResponse() {
+    @Test func parsesFilesFromGistResponse() {
         let lines = [
             gistLine(timestamp: "2026-08-29T10:00:00Z", input: 100, output: 50),
             gistLine(timestamp: "2026-08-29T10:05:00Z", input: 20, output: 10,
@@ -156,11 +157,11 @@ final class CloudUsageFetcherTests: XCTestCase {
         let data = gistResponse(files: ["session-abc.jsonl": lines])
 
         let entries = CloudUsageFetcher.parseGistResponse(data)
-        XCTAssertEqual(entries.count, 2)
-        XCTAssertEqual(entries.reduce(0) { $0 + $1.inputTokens }, 120)
+        #expect(entries.count == 2)
+        #expect(entries.reduce(0) { $0 + $1.inputTokens } == 120)
     }
 
-    func testDeduplicatesAcrossFiles() {
+    @Test func deduplicatesAcrossFiles() {
         let line = gistLine(timestamp: "2026-08-29T10:00:00Z")
         // Same session republished under two file snapshots must not double-count.
         let data = gistResponse(files: [
@@ -168,15 +169,15 @@ final class CloudUsageFetcherTests: XCTestCase {
             "session-abc-old.jsonl": line,
         ])
         let entries = CloudUsageFetcher.parseGistResponse(data)
-        XCTAssertEqual(entries.count, 1)
+        #expect(entries.count == 1)
     }
 
-    func testMalformedResponseReturnsEmpty() {
-        XCTAssertEqual(CloudUsageFetcher.parseGistResponse(Data("not json".utf8)).count, 0)
-        XCTAssertEqual(CloudUsageFetcher.parseGistResponse(Data("{}".utf8)).count, 0)
+    @Test func malformedResponseReturnsEmpty() {
+        #expect(CloudUsageFetcher.parseGistResponse(Data("not json".utf8)).count == 0)
+        #expect(CloudUsageFetcher.parseGistResponse(Data("{}".utf8)).count == 0)
     }
 
-    func testSnapshotMergesAdditionalEntriesIntoActiveBlockAndToday() {
+    @Test func snapshotMergesAdditionalEntriesIntoActiveBlockAndToday() {
         let reader = ClaudeUsageReader(configDirectories: [])
         let now = Date()
         let cloudEntry = ClaudeUsageEntry(timestamp: now.addingTimeInterval(-60),
@@ -184,8 +185,8 @@ final class CloudUsageFetcherTests: XCTestCase {
                                           outputTokens: 250, cacheCreationTokens: 0,
                                           cacheReadTokens: 0)
         let snap = reader.snapshot(now: now, additionalEntries: [cloudEntry])
-        XCTAssertEqual(snap.activeBlock?.totals.inputTokens, 500)
-        XCTAssertEqual(snap.today.inputTokens, 500)
-        XCTAssertEqual(snap.latestModel, "claude-opus-5")
+        #expect(snap.activeBlock?.totals.inputTokens == 500)
+        #expect(snap.today.inputTokens == 500)
+        #expect(snap.latestModel == "claude-opus-5")
     }
 }
