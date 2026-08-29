@@ -156,6 +156,27 @@ public struct ClaudeUsageSnapshot: Equatable {
     public init() {}
 }
 
+// MARK: - Formatting shared by the widget and the dashboard panel
+
+public enum UsageFormat {
+    public static func tokens(_ tokens: Int) -> String {
+        switch tokens {
+        case ..<1_000: return "\(tokens)"
+        case ..<1_000_000: return String(format: "%.1fk", Double(tokens) / 1_000)
+        default: return String(format: "%.2fM", Double(tokens) / 1_000_000)
+        }
+    }
+
+    public static func cost(_ usd: Double) -> String {
+        String(format: "$%.2f", usd)
+    }
+
+    public static func countdown(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds))
+        return String(format: "%d:%02d h", s / 3600, (s % 3600) / 60)
+    }
+}
+
 // MARK: - Pricing (estimates)
 
 /// USD per million tokens. Cache write ≈ 1.25x input, cache read ≈ 0.1x

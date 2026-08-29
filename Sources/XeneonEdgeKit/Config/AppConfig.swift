@@ -41,6 +41,11 @@ public struct AppConfig: Codable, Equatable {
     public var showLauncher = true
     public var showWeather = false
     public var use24HourClock = true
+    /// Claude-Code usage panel (tokens in the 5h window, reset, cost, model).
+    public var showClaudeUsage = false
+    /// Personal token budget per 5h block for the panel's ring; 0 = show the
+    /// elapsed-time ring instead (limits are not published by Anthropic).
+    public var claudeTokenBudgetPerBlock = 0
 
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
@@ -61,6 +66,37 @@ public struct AppConfig: Codable, Equatable {
     ]
 
     public init() {}
+
+    // MARK: Tolerant decoding
+    // Every field falls back to its default when missing, so configs written
+    // by older versions keep working after an update instead of being reset.
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppConfig()
+        touchEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchEnabled) ?? d.touchEnabled
+        dragEnabled = try c.decodeIfPresent(Bool.self, forKey: .dragEnabled) ?? d.dragEnabled
+        longPressRightClick = try c.decodeIfPresent(Bool.self, forKey: .longPressRightClick) ?? d.longPressRightClick
+        touchRotation = try c.decodeIfPresent(Int.self, forKey: .touchRotation) ?? d.touchRotation
+        touchInvertX = try c.decodeIfPresent(Bool.self, forKey: .touchInvertX) ?? d.touchInvertX
+        touchInvertY = try c.decodeIfPresent(Bool.self, forKey: .touchInvertY) ?? d.touchInvertY
+        dashboardEnabled = try c.decodeIfPresent(Bool.self, forKey: .dashboardEnabled) ?? d.dashboardEnabled
+        previewWithoutDevice = try c.decodeIfPresent(Bool.self, forKey: .previewWithoutDevice) ?? d.previewWithoutDevice
+        showClock = try c.decodeIfPresent(Bool.self, forKey: .showClock) ?? d.showClock
+        showStats = try c.decodeIfPresent(Bool.self, forKey: .showStats) ?? d.showStats
+        showMedia = try c.decodeIfPresent(Bool.self, forKey: .showMedia) ?? d.showMedia
+        showVolume = try c.decodeIfPresent(Bool.self, forKey: .showVolume) ?? d.showVolume
+        showLauncher = try c.decodeIfPresent(Bool.self, forKey: .showLauncher) ?? d.showLauncher
+        showWeather = try c.decodeIfPresent(Bool.self, forKey: .showWeather) ?? d.showWeather
+        use24HourClock = try c.decodeIfPresent(Bool.self, forKey: .use24HourClock) ?? d.use24HourClock
+        showClaudeUsage = try c.decodeIfPresent(Bool.self, forKey: .showClaudeUsage) ?? d.showClaudeUsage
+        claudeTokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerBlock) ?? d.claudeTokenBudgetPerBlock
+        weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
+        weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
+        weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
+        ddcDisplayIndex = try c.decodeIfPresent(Int.self, forKey: .ddcDisplayIndex) ?? d.ddcDisplayIndex
+        launcherItems = try c.decodeIfPresent([LauncherItem].self, forKey: .launcherItems) ?? d.launcherItems
+    }
 
     // MARK: Persistence
 

@@ -69,8 +69,7 @@ final class UsageViewModel: ObservableObject {
 
     var resetCountdown: String {
         guard let block = snapshot.activeBlock else { return "—" }
-        let remaining = Int(block.remaining(at: Date()))
-        return String(format: "%d:%02d h", remaining / 3600, (remaining % 3600) / 60)
+        return UsageFormat.countdown(block.remaining(at: Date()))
     }
 
     var resetClockTime: String {
@@ -91,15 +90,6 @@ final class UsageViewModel: ObservableObject {
         return plan.prefix(1).uppercased() + plan.dropFirst()
     }
 
-    static func tokenString(_ tokens: Int) -> String {
-        switch tokens {
-        case ..<1_000: return "\(tokens)"
-        case ..<1_000_000: return String(format: "%.1fk", Double(tokens) / 1_000)
-        default: return String(format: "%.2fM", Double(tokens) / 1_000_000)
-        }
-    }
-
-    static func costString(_ usd: Double) -> String {
-        String(format: "$%.2f", usd)
-    }
+    static func tokenString(_ tokens: Int) -> String { UsageFormat.tokens(tokens) }
+    static func costString(_ usd: Double) -> String { UsageFormat.cost(usd) }
 }

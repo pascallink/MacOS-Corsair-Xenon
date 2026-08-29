@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let mediaModel = MediaModel()
     private let volumeModel = VolumeModel()
     private let weatherModel = WeatherModel()
+    private let claudeModel = ClaudeUsageModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -36,11 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(mediaModel)
             .environmentObject(volumeModel)
             .environmentObject(weatherModel)
+            .environmentObject(claudeModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
         mediaModel.start()
         volumeModel.start()
+        if configStore.config.showClaudeUsage {
+            claudeModel.start()
+        }
         if configStore.config.showWeather {
             weatherModel.start(latitude: configStore.config.weatherLatitude,
                                longitude: configStore.config.weatherLongitude)

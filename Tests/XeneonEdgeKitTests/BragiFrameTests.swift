@@ -73,8 +73,22 @@ final class ConfigTests: XCTestCase {
         var config = AppConfig()
         config.touchRotation = 180
         config.weatherPlaceName = "Hamburg"
+        config.showClaudeUsage = true
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
         XCTAssertEqual(decoded, config)
+    }
+
+    /// Configs written by older versions miss newer keys — customized values
+    /// must survive an update, missing fields fall back to defaults.
+    func testPartialConfigKeepsCustomValuesAndDefaultsTheRest() throws {
+        let json = #"{"touchRotation": 90, "showMedia": false}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.touchRotation, 90)
+        XCTAssertFalse(decoded.showMedia)
+        let defaults = AppConfig()
+        XCTAssertEqual(decoded.showClaudeUsage, defaults.showClaudeUsage)
+        XCTAssertEqual(decoded.launcherItems, defaults.launcherItems)
+        XCTAssertEqual(decoded.weatherPlaceName, defaults.weatherPlaceName)
     }
 }

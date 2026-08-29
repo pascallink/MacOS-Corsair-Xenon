@@ -128,6 +128,37 @@ final class VolumeModel: ObservableObject {
     }
 }
 
+// MARK: - Claude Code usage (local logs)
+
+final class ClaudeUsageModel: ObservableObject {
+    @Published var snapshot = ClaudeUsageSnapshot()
+
+    private let reader = ClaudeUsageReader()
+    private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
+    private var timer: Timer?
+
+    func start() {
+        guard timer == nil else { return }
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func refresh() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let snap = self.reader.snapshot()
+            DispatchQueue.main.async { self.snapshot = snap }
+        }
+    }
+}
+
 // MARK: - Weather (Open-Meteo, key-less public API)
 
 struct WeatherInfo: Equatable {

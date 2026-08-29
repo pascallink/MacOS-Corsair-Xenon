@@ -24,9 +24,10 @@ liefert diese Funktionen nativ für macOS:
   Bragi-Vendor-HID-Transport, DDC/CI, Systemsensoren, Medien/Audio,
   Claude-Code-Nutzungsparser.
 - **`XeneonEdgeApp`** — Menüleisten-App mit dem Touch-Dashboard.
-- **`ClaudeUsageWidget`** — rahmenloses Widget für das Edge, das die lokale
-  Claude-Code-Nutzung anzeigt (Token im 5-h-Fenster, Reset-Countdown,
-  Kosten-Schätzung, aktives Modell) →
+- **Claude-Code-Nutzungsanzeige** — Token im 5-h-Fenster, Reset-Countdown,
+  Kosten-Schätzung, aktives Modell; wahlweise als Panel im Dashboard
+  (`"showClaudeUsage": true` in der config.json) oder als eigenständiges
+  Floating-Widget (`ClaudeUsageWidget.app`) →
   [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
 - **`xeneonctl`** — Kommandozeilenwerkzeug (probe, brightness, ddc, touch-monitor).
 
