@@ -147,6 +147,49 @@ Dafür sorgen mehrere Schichten:
 (siehe LICENSE). Auf echter Hardware noch jung — bitte Probleme mit der
 Ausgabe von `xeneonctl probe` als GitHub-Issue melden.
 
+## 5a. Widgets des Dashboards anpassen
+
+Die Dashboard-Konfiguration liegt in
+`~/Library/Application Support/XeneonEdge/config.json` (Menüleiste →
+„Konfigurationsdatei öffnen …“). Nach Änderungen die App neu starten.
+
+Panels ein-/ausschalten:
+
+```json
+{
+  "showClock": true,
+  "showStats": true,
+  "showMedia": true,
+  "showVolume": true,
+  "showLauncher": true,
+  "showWeather": false,
+  "showClaudeUsage": false,
+  "use24HourClock": true
+}
+```
+
+- **`showClaudeUsage`** — Panel mit der lokalen Claude-Code-Nutzung
+  (Token im 5-h-Fenster, Reset-Countdown, Kosten, Modell); Details in
+  [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
+- **`showWeather`** — braucht zusätzlich `weatherLatitude`,
+  `weatherLongitude` und `weatherPlaceName`.
+
+Schnellstart-Buttons (`launcherItems`): Name, Ziel (Bundle-ID **oder**
+absoluter App-Pfad) und ein [SF-Symbol](https://developer.apple.com/sf-symbols/).
+Ein `id`-Feld ist nicht nötig — es wird automatisch vergeben:
+
+```json
+"launcherItems": [
+  { "name": "VS Code", "target": "com.microsoft.VSCode", "symbol": "chevron.left.forwardslash.chevron.right" },
+  { "name": "Steam", "target": "/Applications/Steam.app", "symbol": "gamecontroller" }
+]
+```
+
+Die Bundle-ID einer installierten App liefert `osascript -e 'id of app "Steam"'`.
+
+Fehlende Schlüssel sind unkritisch: Jedes Feld fällt einzeln auf seinen
+Standardwert zurück, deine übrigen Einstellungen bleiben erhalten.
+
 ## 6. Deinstallation (rückstandsfrei)
 
 ```bash

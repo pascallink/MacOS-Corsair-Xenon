@@ -88,7 +88,28 @@ final class ConfigTests: XCTestCase {
         XCTAssertFalse(decoded.showMedia)
         let defaults = AppConfig()
         XCTAssertEqual(decoded.showClaudeUsage, defaults.showClaudeUsage)
-        XCTAssertEqual(decoded.launcherItems, defaults.launcherItems)
         XCTAssertEqual(decoded.weatherPlaceName, defaults.weatherPlaceName)
+        // Launcher items carry a generated id, so compare their contents.
+        XCTAssertEqual(decoded.launcherItems.map(\.target),
+                       defaults.launcherItems.map(\.target))
+    }
+
+    /// Hand-written launcher entries may omit the internal id.
+    func testLauncherItemWithoutIDDecodes() throws {
+        let json = #"{"name": "Steam", "target": "/Applications/Steam.app", "symbol": "gamecontroller"}"#
+        let item = try JSONDecoder().decode(LauncherItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.name, "Steam")
+        XCTAssertEqual(item.target, "/Applications/Steam.app")
+        XCTAssertEqual(item.symbol, "gamecontroller")
+    }
+
+    func testLauncherItemsSurviveConfigRoundTripWithoutIDs() throws {
+        let json = """
+        {"launcherItems": [{"name": "VS Code", "target": "com.microsoft.VSCode"}]}
+        """
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.launcherItems.count, 1)
+        XCTAssertEqual(decoded.launcherItems[0].name, "VS Code")
+        XCTAssertEqual(decoded.launcherItems[0].symbol, "app") // default symbol
     }
 }

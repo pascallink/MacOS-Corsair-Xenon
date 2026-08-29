@@ -19,6 +19,16 @@ public struct LauncherItem: Codable, Equatable, Identifiable {
         self.target = target
         self.symbol = symbol
     }
+
+    /// `id` is an internal detail of the SwiftUI list, so hand-written
+    /// config entries may omit it; one is generated then.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        target = try c.decode(String.self, forKey: .target)
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol) ?? "app"
+    }
 }
 
 public struct AppConfig: Codable, Equatable {
