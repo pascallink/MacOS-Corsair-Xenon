@@ -170,12 +170,22 @@ final class VolumeModel: ObservableObject {
 
 final class ClaudeUsageModel: ObservableObject {
     @Published var snapshot = ClaudeUsageSnapshot()
+    /// True once at least one entry has come back from the cloud relay, so
+    /// the panel can show that it isn't showing local-only numbers.
+    @Published var usesCloudData = false
 
     private let reader = ClaudeUsageReader()
     private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
     private var timer: Timer?
+    private var cloudTimer: Timer?
+    private var cloudEntries: [ClaudeUsageEntry] = []
+    private var cloudGistID = ""
 
-    func start() {
+    /// - Parameters:
+    ///   - cloudGistID: Empty disables the cloud relay (default, local-only).
+    ///   - cloudPollSeconds: Clamped to >=60s (GitHub's unauthenticated rate limit).
+    func start(cloudGistID: String = "", cloudPollSeconds: Double = 90) {
+        configureCloud(gistID: cloudGistID, pollSeconds: cloudPollSeconds)
         guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: true) { [weak self] _ in
@@ -186,12 +196,49 @@ final class ClaudeUsageModel: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        cloudTimer?.invalidate()
+        cloudTimer = nil
+        cloudEntries = []
+        cloudGistID = ""
+        usesCloudData = false
+    }
+
+    private func configureCloud(gistID: String, pollSeconds: Double) {
+        let trimmed = gistID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != cloudGistID else { return }
+        cloudGistID = trimmed
+        cloudEntries = []
+        usesCloudData = false
+        cloudTimer?.invalidate()
+        cloudTimer = nil
+        guard !trimmed.isEmpty else { return }
+
+        let interval = min(max(pollSeconds, 60), 900)
+        pollCloud()
+        cloudTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.pollCloud()
+        }
+    }
+
+    private func pollCloud() {
+        let gistID = cloudGistID
+        guard !gistID.isEmpty else { return }
+        Task { [weak self] in
+            let entries = await CloudUsageFetcher.fetch(gistID: gistID)
+            await MainActor.run {
+                guard let self, self.cloudGistID == gistID else { return }
+                self.cloudEntries = entries
+                self.usesCloudData = !entries.isEmpty
+                self.refresh()
+            }
+        }
     }
 
     private func refresh() {
+        let cloud = cloudEntries
         queue.async { [weak self] in
             guard let self else { return }
-            let snap = self.reader.snapshot()
+            let snap = self.reader.snapshot(additionalEntries: cloud)
             DispatchQueue.main.async { self.snapshot = snap }
         }
     }

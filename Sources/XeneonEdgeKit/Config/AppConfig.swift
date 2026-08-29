@@ -56,6 +56,14 @@ public struct AppConfig: Codable, Equatable {
     /// Personal token budget per 5h block for the panel's ring; 0 = show the
     /// elapsed-time ring instead (limits are not published by Anthropic).
     public var claudeTokenBudgetPerBlock = 0
+    /// GitHub Gist id relaying usage from Claude Code sessions running in a
+    /// remote/cloud environment (see .claude/hooks/publish-claude-usage.sh
+    /// and docs/CLAUDE-USAGE-WIDGET.md). Empty disables the cloud relay
+    /// entirely — only local ~/.claude logs are read, the default.
+    public var cloudGistID = ""
+    /// Poll interval for the cloud relay; clamped to >=60s to stay under
+    /// GitHub's unauthenticated REST rate limit (60 requests/hour/IP).
+    public var cloudPollSeconds: Double = 90
 
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
@@ -101,6 +109,8 @@ public struct AppConfig: Codable, Equatable {
         use24HourClock = try c.decodeIfPresent(Bool.self, forKey: .use24HourClock) ?? d.use24HourClock
         showClaudeUsage = try c.decodeIfPresent(Bool.self, forKey: .showClaudeUsage) ?? d.showClaudeUsage
         claudeTokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerBlock) ?? d.claudeTokenBudgetPerBlock
+        cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
+        cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName

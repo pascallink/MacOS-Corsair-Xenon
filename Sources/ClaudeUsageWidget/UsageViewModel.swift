@@ -8,24 +8,32 @@ import XeneonEdgeKit
 final class UsageViewModel: ObservableObject {
     @Published var snapshot = ClaudeUsageSnapshot()
     @Published var config = WidgetConfig.load()
+    /// True once at least one entry has come back from the cloud relay.
+    @Published var usesCloudData = false
 
     private let reader = ClaudeUsageReader()
     private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
     private var timer: Timer?
+    private var cloudTimer: Timer?
+    private var cloudEntries: [ClaudeUsageEntry] = []
 
     func start() {
         refresh()
         scheduleTimer()
+        scheduleCloudTimer()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        cloudTimer?.invalidate()
+        cloudTimer = nil
     }
 
     func reloadConfig() {
         config = WidgetConfig.load()
         scheduleTimer()
+        scheduleCloudTimer()
         refresh()
     }
 
@@ -37,10 +45,39 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    private func scheduleCloudTimer() {
+        cloudTimer?.invalidate()
+        cloudTimer = nil
+        cloudEntries = []
+        usesCloudData = false
+        guard !config.cloudGistID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let interval = min(max(config.cloudPollSeconds, 60), 900)
+        pollCloud()
+        cloudTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.pollCloud()
+        }
+    }
+
+    private func pollCloud() {
+        let gistID = config.cloudGistID
+        guard !gistID.isEmpty else { return }
+        Task { [weak self] in
+            let entries = await CloudUsageFetcher.fetch(gistID: gistID)
+            await MainActor.run {
+                guard let self, self.config.cloudGistID == gistID else { return }
+                self.cloudEntries = entries
+                self.usesCloudData = !entries.isEmpty
+                self.refresh()
+            }
+        }
+    }
+
     func refresh() {
+        let cloud = cloudEntries
         queue.async { [weak self] in
             guard let self else { return }
-            let snap = self.reader.snapshot()
+            let snap = self.reader.snapshot(additionalEntries: cloud)
             DispatchQueue.main.async {
                 self.snapshot = snap
             }

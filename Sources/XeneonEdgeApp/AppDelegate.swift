@@ -109,7 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     /// Starts or stops the background work behind the optional panels, so a
     /// switched-off widget costs nothing.
     private func applyWidgetServices() {
-        if configStore.config.showClaudeUsage { claudeModel.start() } else { claudeModel.stop() }
+        if configStore.config.showClaudeUsage {
+            claudeModel.start(cloudGistID: configStore.config.cloudGistID,
+                              cloudPollSeconds: configStore.config.cloudPollSeconds)
+        } else {
+            claudeModel.stop()
+        }
         if configStore.config.showWeather {
             weatherModel.start(latitude: configStore.config.weatherLatitude,
                                longitude: configStore.config.weatherLongitude)

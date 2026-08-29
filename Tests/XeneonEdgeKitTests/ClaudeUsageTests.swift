@@ -127,3 +127,65 @@ final class UsageBlockTests: XCTestCase {
         XCTAssertEqual(blocks[0].totals.entryCount, 3)
     }
 }
+
+final class CloudUsageFetcherTests: XCTestCase {
+    private func gistLine(timestamp: String, model: String = "claude-opus-5",
+                          input: Int = 10, output: Int = 20,
+                          messageID: String = "msg_1", requestID: String = "req_1") -> String {
+        """
+        {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestID)",\
+        "message":{"id":"\(messageID)","model":"\(model)","usage":{"input_tokens":\(input),\
+        "output_tokens":\(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+        """
+    }
+
+    /// Shape of a real `GET /gists/{id}` response, trimmed to what we read.
+    private func gistResponse(files: [String: String]) -> Data {
+        let filesJSON = files.map { name, content in
+            "\"\(name)\": {\"content\": \(String(data: try! JSONEncoder().encode(content), encoding: .utf8)!)}"
+        }.joined(separator: ",")
+        return Data("{\"files\": {\(filesJSON)}}".utf8)
+    }
+
+    func testParsesFilesFromGistResponse() {
+        let lines = [
+            gistLine(timestamp: "2026-08-29T10:00:00Z", input: 100, output: 50),
+            gistLine(timestamp: "2026-08-29T10:05:00Z", input: 20, output: 10,
+                     messageID: "msg_2", requestID: "req_2"),
+        ].joined(separator: "\n")
+        let data = gistResponse(files: ["session-abc.jsonl": lines])
+
+        let entries = CloudUsageFetcher.parseGistResponse(data)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.reduce(0) { $0 + $1.inputTokens }, 120)
+    }
+
+    func testDeduplicatesAcrossFiles() {
+        let line = gistLine(timestamp: "2026-08-29T10:00:00Z")
+        // Same session republished under two file snapshots must not double-count.
+        let data = gistResponse(files: [
+            "session-abc.jsonl": line,
+            "session-abc-old.jsonl": line,
+        ])
+        let entries = CloudUsageFetcher.parseGistResponse(data)
+        XCTAssertEqual(entries.count, 1)
+    }
+
+    func testMalformedResponseReturnsEmpty() {
+        XCTAssertEqual(CloudUsageFetcher.parseGistResponse(Data("not json".utf8)).count, 0)
+        XCTAssertEqual(CloudUsageFetcher.parseGistResponse(Data("{}".utf8)).count, 0)
+    }
+
+    func testSnapshotMergesAdditionalEntriesIntoActiveBlockAndToday() {
+        let reader = ClaudeUsageReader(configDirectories: [])
+        let now = Date()
+        let cloudEntry = ClaudeUsageEntry(timestamp: now.addingTimeInterval(-60),
+                                          model: "claude-opus-5", inputTokens: 500,
+                                          outputTokens: 250, cacheCreationTokens: 0,
+                                          cacheReadTokens: 0)
+        let snap = reader.snapshot(now: now, additionalEntries: [cloudEntry])
+        XCTAssertEqual(snap.activeBlock?.totals.inputTokens, 500)
+        XCTAssertEqual(snap.today.inputTokens, 500)
+        XCTAssertEqual(snap.latestModel, "claude-opus-5")
+    }
+}

@@ -25,6 +25,14 @@ struct WidgetConfig: Codable, Equatable {
     /// Count cache reads towards the displayed token number. Plan limits
     /// weigh cache reads barely at all, so the default leaves them out.
     var includeCacheReads: Bool = false
+    /// GitHub Gist id relaying usage from Claude Code sessions running in a
+    /// remote/cloud environment (see .claude/hooks/publish-claude-usage.sh
+    /// and docs/CLAUDE-USAGE-WIDGET.md). Empty disables the cloud relay
+    /// entirely — only local ~/.claude logs are read, the default.
+    var cloudGistID: String = ""
+    /// Poll interval for the cloud relay; clamped to >=60s to stay under
+    /// GitHub's unauthenticated REST rate limit (60 requests/hour/IP).
+    var cloudPollSeconds: Double = 90
 
     // MARK: Tolerant decoding
     // The synthesized Codable init requires every key to be present, so a
@@ -44,6 +52,8 @@ struct WidgetConfig: Codable, Equatable {
         width = try c.decodeIfPresent(Double.self, forKey: .width) ?? d.width
         height = try c.decodeIfPresent(Double.self, forKey: .height) ?? d.height
         includeCacheReads = try c.decodeIfPresent(Bool.self, forKey: .includeCacheReads) ?? d.includeCacheReads
+        cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
+        cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
     }
 
     static var fileURL: URL {

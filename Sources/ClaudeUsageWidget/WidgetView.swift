@@ -147,13 +147,21 @@ struct WidgetView: View {
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Color.white.opacity(0.10)))
             }
+            if model.usesCloudData {
+                Label("Cloud", systemImage: "icloud")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(WidgetTheme.textSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+            }
             Spacer()
             if model.snapshot.activeBlock == nil {
                 Text("keine aktive Session")
                     .font(.system(size: 11))
                     .foregroundColor(WidgetTheme.textSecondary)
             }
-            Text("Kosten geschätzt · lokal")
+            Text("Kosten geschätzt · lokal" + (model.usesCloudData ? " + Cloud" : ""))
                 .font(.system(size: 10))
                 .foregroundColor(WidgetTheme.textSecondary.opacity(0.7))
         }

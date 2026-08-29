@@ -47,7 +47,10 @@ public final class ClaudeUsageReader {
 
     // MARK: - Snapshot
 
-    public func snapshot(now: Date = Date()) -> ClaudeUsageSnapshot {
+    /// - Parameter additionalEntries: Usage entries from other sources (e.g.
+    ///   a cloud/remote relay) to fold into the same 5h-block and "today"
+    ///   computation as the local logs. Already deduplicated by the caller.
+    public func snapshot(now: Date = Date(), additionalEntries: [ClaudeUsageEntry] = []) -> ClaudeUsageSnapshot {
         var snap = ClaudeUsageSnapshot()
         snap.lastUpdated = now
         snap.subscriptionType = readSubscriptionType()
@@ -78,6 +81,8 @@ public final class ClaudeUsageReader {
                 }
             }
         }
+
+        entries.append(contentsOf: additionalEntries)
 
         // Latest model = most recent assistant reply.
         snap.latestModel = entries.max(by: { $0.timestamp < $1.timestamp })?.model

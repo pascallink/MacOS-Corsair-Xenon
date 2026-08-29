@@ -372,13 +372,23 @@ struct ClaudeUsagePanel: View {
                             .font(.system(size: 13))
                             .foregroundColor(EdgeTheme.textSecondary)
                     }
-                    if let model = claude.snapshot.latestModel {
-                        Text(ModelPricing.displayName(for: model))
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(EdgeTheme.accent))
+                    HStack(spacing: 6) {
+                        if let model = claude.snapshot.latestModel {
+                            Text(ModelPricing.displayName(for: model))
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(EdgeTheme.accent))
+                        }
+                        if claude.usesCloudData {
+                            Label("Cloud", systemImage: "icloud")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(EdgeTheme.textSecondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.white.opacity(0.08)))
+                        }
                     }
                 }
                 Spacer(minLength: 0)
