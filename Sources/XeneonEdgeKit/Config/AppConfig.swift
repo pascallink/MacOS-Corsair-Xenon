@@ -39,6 +39,9 @@ public struct AppConfig: Codable, Equatable {
     public var touchRotation = 0
     public var touchInvertX = false
     public var touchInvertY = false
+    /// Cursor jumps back to its position from before a touch gesture (issue
+    /// #10). Independent of `dragEnabled`.
+    public var restoreCursorAfterTouch = true
 
     // Dashboard
     public var dashboardEnabled = true
@@ -76,6 +79,9 @@ public struct AppConfig: Codable, Equatable {
 
     // DDC
     public var ddcDisplayIndex = 0
+    /// Picks the DDC target via the display's identity (the Edge) instead of
+    /// the service index. `ddcDisplayIndex` only applies when this is off.
+    public var ddcSelectEdgeByIdentity = true
 
     // Launcher buttons
     public var launcherItems: [LauncherItem] = [
@@ -102,6 +108,7 @@ public struct AppConfig: Codable, Equatable {
         touchRotation = try c.decodeIfPresent(Int.self, forKey: .touchRotation) ?? d.touchRotation
         touchInvertX = try c.decodeIfPresent(Bool.self, forKey: .touchInvertX) ?? d.touchInvertX
         touchInvertY = try c.decodeIfPresent(Bool.self, forKey: .touchInvertY) ?? d.touchInvertY
+        restoreCursorAfterTouch = try c.decodeIfPresent(Bool.self, forKey: .restoreCursorAfterTouch) ?? d.restoreCursorAfterTouch
         dashboardEnabled = try c.decodeIfPresent(Bool.self, forKey: .dashboardEnabled) ?? d.dashboardEnabled
         previewWithoutDevice = try c.decodeIfPresent(Bool.self, forKey: .previewWithoutDevice) ?? d.previewWithoutDevice
         showClock = try c.decodeIfPresent(Bool.self, forKey: .showClock) ?? d.showClock
@@ -120,6 +127,7 @@ public struct AppConfig: Codable, Equatable {
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
         ddcDisplayIndex = try c.decodeIfPresent(Int.self, forKey: .ddcDisplayIndex) ?? d.ddcDisplayIndex
+        ddcSelectEdgeByIdentity = try c.decodeIfPresent(Bool.self, forKey: .ddcSelectEdgeByIdentity) ?? d.ddcSelectEdgeByIdentity
         launcherItems = try c.decodeIfPresent([LauncherItem].self, forKey: .launcherItems) ?? d.launcherItems
     }
 

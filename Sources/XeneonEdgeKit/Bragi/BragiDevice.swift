@@ -1,11 +1,11 @@
 // XeneonEdge for macOS
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// IOKit HID transport to the XENEON EDGE vendor control interface
-// (usage page 0xFF1B, 64-byte in/out reports, report id 0x01).
+// Corsair "Bragi" / Protocol V2 request/response logic for the XENEON EDGE
+// vendor control interface. The IOKit transport lives in BragiTransport.swift
+// so this type stays testable without hardware.
 
 import Foundation
-import IOKit.hid
 
 public enum BragiError: Error, CustomStringConvertible {
     case deviceNotFound
@@ -50,124 +50,52 @@ public final class BragiDevice {
     public static func isReadOnly(_ frame: BragiFrame) -> Bool {
         readOnlyCommands.contains(frame.payload.first ?? 0)
     }
-    private let device: IOHIDDevice
-    // Stable buffer handed to IOKit for incoming reports; must outlive the
-    // registration, hence manually managed.
-    private let reportBuffer: UnsafeMutablePointer<UInt8>
-    private let responseLock = NSCondition()
-    private var pendingResponse: [UInt8]?
 
-    public private(set) var manufacturer: String = ""
-    public private(set) var product: String = ""
-    public private(set) var serialNumber: String = ""
+    private let transport: BragiTransport
+
+    public var manufacturer: String { transport.manufacturer }
+    public var product: String { transport.product }
+    public var serialNumber: String { transport.serialNumber }
 
     // MARK: Discovery
 
+    /// Test seam: wraps an arbitrary transport.
+    public init(transport: BragiTransport) {
+        self.transport = transport
+    }
+
     /// Finds the first XENEON EDGE vendor interface on the system.
     public static func find() -> BragiDevice? {
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let matching: [String: Any] = [
-            kIOHIDVendorIDKey as String: EdgeConstants.corsairVendorID,
-            kIOHIDProductIDKey as String: EdgeConstants.edgeProductID,
-            kIOHIDDeviceUsagePageKey as String: EdgeConstants.vendorUsagePage,
-        ]
-        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-        guard IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess,
-              let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
-              let dev = set.first
-        else {
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            return nil
-        }
-        return BragiDevice(device: dev)
-    }
-
-    private init(device: IOHIDDevice) {
-        self.device = device
-        self.reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: EdgeConstants.reportSize)
-        self.reportBuffer.initialize(repeating: 0, count: EdgeConstants.reportSize)
-        manufacturer = Self.stringProperty(device, kIOHIDManufacturerKey) ?? ""
-        product = Self.stringProperty(device, kIOHIDProductKey) ?? ""
-        serialNumber = Self.stringProperty(device, kIOHIDSerialNumberKey) ?? ""
-    }
-
-    deinit {
-        reportBuffer.deallocate()
-    }
-
-    private static func stringProperty(_ device: IOHIDDevice, _ key: String) -> String? {
-        IOHIDDeviceGetProperty(device, key as CFString) as? String
+        guard let transport = IOHIDBragiTransport.find() else { return nil }
+        return BragiDevice(transport: transport)
     }
 
     // MARK: Session
 
-    /// Opens the device and starts listening for input reports on a private run loop.
-    public func open() throws {
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard result == kIOReturnSuccess else { throw BragiError.openFailed(result) }
-
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            device, reportBuffer, EdgeConstants.reportSize,
-            { context, _, _, _, _, report, reportLength in
-                guard let context else { return }
-                let me = Unmanaged<BragiDevice>.fromOpaque(context).takeUnretainedValue()
-                let bytes = [UInt8](UnsafeBufferPointer(start: report, count: reportLength))
-                me.responseLock.lock()
-                me.pendingResponse = bytes
-                me.responseLock.signal()
-                me.responseLock.unlock()
-            },
-            context
-        )
-        // Dedicated thread so the caller does not have to run a run loop.
-        let dev = device
-        Thread.detachNewThread {
-            IOHIDDeviceScheduleWithRunLoop(dev, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
-            CFRunLoopRun()
-        }
-    }
-
-    public func close() {
-        IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-    }
+    public func open() throws { try transport.open() }
+    public func close() { transport.close() }
 
     // MARK: I/O
 
-    /// Sends one 64-byte frame. The report id byte is passed to IOKit as the
-    /// report number; the remaining 63 bytes are the report data.
-    /// Frames whose command byte is not read-only are rejected unless
-    /// `dangerouslyAllowWrites` was set (firmware-safety write gate).
+    /// Sends one 64-byte frame. Frames whose command byte is not read-only
+    /// are rejected unless `dangerouslyAllowWrites` was set (firmware-safety
+    /// write gate).
     public func send(_ frame: BragiFrame) throws {
         guard Self.isReadOnly(frame) || dangerouslyAllowWrites else {
             throw BragiError.writesDisabled(frame.payload.first ?? 0)
         }
-        let data = Array(frame.bytes.dropFirst()) // strip report id byte
-        let result = data.withUnsafeBufferPointer { buf in
-            IOHIDDeviceSetReport(
-                device, kIOHIDReportTypeOutput,
-                CFIndex(EdgeConstants.reportID),
-                buf.baseAddress!, buf.count
-            )
-        }
-        guard result == kIOReturnSuccess else { throw BragiError.writeFailed(result) }
+        // The buffer MUST contain the report id byte 0x01. A/B-verified on
+        // the real device: 64 bytes incl. id -> answer; 63 bytes without id
+        // -> silence. IOHIDDeviceSetReport reports kIOReturnSuccess either
+        // way, so the failure only surfaces later, as a timeout.
+        try transport.setOutputReport(reportID: EdgeConstants.reportID, report: frame.bytes)
     }
 
     /// Sends a frame and waits for the next input report.
     public func transfer(_ frame: BragiFrame, timeout: TimeInterval = 1.0) throws -> [UInt8] {
-        responseLock.lock()
-        pendingResponse = nil
-        responseLock.unlock()
-
+        transport.clearPendingInput()
         try send(frame)
-
-        responseLock.lock()
-        defer { responseLock.unlock() }
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while pendingResponse == nil {
-            if !responseLock.wait(until: deadline) { throw BragiError.timeout }
-        }
-        return pendingResponse!
+        return try transport.nextInputReport(timeout: timeout)
     }
 
     // MARK: High-level commands

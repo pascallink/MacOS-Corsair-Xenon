@@ -13,6 +13,7 @@
 // Note: DDC works on direct HDMI / USB-C(DP Alt Mode) connections. Some
 // docks/adapters do not forward I2C.
 
+import CoreGraphics
 import Foundation
 import IOKit
 
@@ -30,6 +31,7 @@ public enum DDCError: Error, CustomStringConvertible {
     case noExternalDisplayService
     case i2cError(IOReturn)
     case invalidReply
+    case displayNotMatched(String)
 
     public var description: String {
         switch self {
@@ -41,6 +43,9 @@ public enum DDCError: Error, CustomStringConvertible {
             return String(format: "I2C transfer failed (IOReturn 0x%08X)", r)
         case .invalidReply:
             return "malformed DDC reply"
+        case .displayNotMatched(let detail):
+            return "no I2C service belongs to display \(detail) " +
+                "(port without a DDC channel, or the adapter does not forward I2C)"
         }
     }
 }
@@ -63,6 +68,8 @@ public final class DDCControl {
 
     private let service: CFTypeRef
     public let serviceLocation: String
+    /// Identity of the service this instance talks to; nil on the index path.
+    public let serviceInfo: DDCServiceInfo?
 
     private static let ddcChipAddress: UInt32 = 0x37
     private static let ddcDataAddress: UInt32 = 0x51
@@ -70,9 +77,9 @@ public final class DDCControl {
 
     // MARK: Setup
 
-    /// Lists the I2C services of external displays. `index` selects among
-    /// them when several external displays are connected.
-    public static func openExternalDisplay(index: Int = 0) throws -> DDCControl {
+    private static func resolveSymbols() throws -> (create: CreateWithServiceFn,
+                                                     write: WriteI2CFn,
+                                                     read: ReadI2CFn) {
         guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY),
               let createSym = dlsym(handle, "IOAVServiceCreateWithService"),
               let writeSym = dlsym(handle, "IOAVServiceWriteI2C"),
@@ -80,65 +87,89 @@ public final class DDCControl {
         else {
             throw DDCError.unsupportedPlatform
         }
-        let create = unsafeBitCast(createSym, to: CreateWithServiceFn.self)
-        let write = unsafeBitCast(writeSym, to: WriteI2CFn.self)
-        let read = unsafeBitCast(readSym, to: ReadI2CFn.self)
+        return (unsafeBitCast(createSym, to: CreateWithServiceFn.self),
+                unsafeBitCast(writeSym, to: WriteI2CFn.self),
+                unsafeBitCast(readSym, to: ReadI2CFn.self))
+    }
 
-        var found: [(CFTypeRef, String)] = []
-        var iterator: io_iterator_t = 0
-        let matching = IOServiceMatching("DCPAVServiceProxy")
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == kIOReturnSuccess else {
-            throw DDCError.noExternalDisplayService
-        }
-        defer { IOObjectRelease(iterator) }
-
-        var entry = IOIteratorNext(iterator)
-        while entry != 0 {
-            defer { IOObjectRelease(entry); entry = IOIteratorNext(iterator) }
-            let location = (IORegistryEntryCreateCFProperty(
-                entry, "Location" as CFString, kCFAllocatorDefault, 0
-            )?.takeRetainedValue() as? String) ?? ""
-            guard location == "External" else { continue }
-            if let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue() {
-                found.append((service, location))
+    /// Opens the I2C channel of a specific display via its EDID identity
+    /// instead of an index — index 0 is a dead service on many machines.
+    public static func open(displayID: CGDirectDisplayID) throws -> DDCControl {
+        let (create, write, read) = try resolveSymbols()
+        let vendor = CGDisplayVendorNumber(displayID)
+        let model = CGDisplayModelNumber(displayID)
+        let serial = CGDisplaySerialNumber(displayID)
+        return try DDCServiceLocator.withExternalServices { entries in
+            guard let match = DDCServiceLocator.select(entries.map(\.info), vendorNumber: vendor,
+                                                       modelNumber: model, serialNumber: serial),
+                  let entry = entries.first(where: { $0.info.index == match.index })?.entry,
+                  let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue()
+            else {
+                throw DDCError.displayNotMatched(
+                    "\"\(vendor):\(model):\(serial)\" (id \(displayID))")
             }
+            return DDCControl(service: service, location: "External", serviceInfo: match,
+                              create: create, write: write, read: read)
         }
+    }
 
-        guard index >= 0, index < found.count else {
-            throw DDCError.noExternalDisplayService
+    /// Opens the Edge's I2C channel: `EdgeDisplay.find()` -> `open(displayID:)`,
+    /// with a fallback to the first usable service whose product name
+    /// contains `EdgeConstants.displayNameHint`.
+    public static func openEdge() throws -> DDCControl {
+        let (create, write, read) = try resolveSymbols()
+        return try DDCServiceLocator.withExternalServices { entries in
+            let infos = entries.map(\.info)
+
+            if let edge = EdgeDisplay.find() {
+                let match = DDCServiceLocator.select(
+                    infos, vendorNumber: CGDisplayVendorNumber(edge.displayID),
+                    modelNumber: CGDisplayModelNumber(edge.displayID),
+                    serialNumber: CGDisplaySerialNumber(edge.displayID))
+                if let match, let entry = entries.first(where: { $0.info.index == match.index })?.entry,
+                   let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue() {
+                    return DDCControl(service: service, location: "External", serviceInfo: match,
+                                      create: create, write: write, read: read)
+                }
+            }
+
+            guard let match = DDCServiceLocator.select(infos, productNameContains: EdgeConstants.displayNameHint),
+                  let entry = entries.first(where: { $0.info.index == match.index })?.entry,
+                  let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue()
+            else {
+                throw DDCError.displayNotMatched("\"\(EdgeConstants.displayNameHint)\"")
+            }
+            return DDCControl(service: service, location: "External", serviceInfo: match,
+                              create: create, write: write, read: read)
         }
-        let (service, location) = found[index]
-        return DDCControl(service: service, location: location,
-                          create: create, write: write, read: read)
+    }
+
+    /// Unchanged index path (manual override).
+    public static func openExternalDisplay(index: Int = 0) throws -> DDCControl {
+        let (create, write, read) = try resolveSymbols()
+        return try DDCServiceLocator.withExternalServices { entries in
+            guard let match = entries.first(where: { $0.info.index == index }),
+                  let service = create(kCFAllocatorDefault, match.entry)?.takeRetainedValue()
+            else {
+                throw DDCError.noExternalDisplayService
+            }
+            return DDCControl(service: service, location: "External", serviceInfo: match.info,
+                              create: create, write: write, read: read)
+        }
     }
 
     /// Number of external display I2C services currently visible.
     public static func externalDisplayCount() -> Int {
-        var count = 0
-        var iterator: io_iterator_t = 0
-        let matching = IOServiceMatching("DCPAVServiceProxy")
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == kIOReturnSuccess else {
-            return 0
-        }
-        defer { IOObjectRelease(iterator) }
-        var entry = IOIteratorNext(iterator)
-        while entry != 0 {
-            let location = (IORegistryEntryCreateCFProperty(
-                entry, "Location" as CFString, kCFAllocatorDefault, 0
-            )?.takeRetainedValue() as? String) ?? ""
-            if location == "External" { count += 1 }
-            IOObjectRelease(entry)
-            entry = IOIteratorNext(iterator)
-        }
-        return count
+        DDCServiceLocator.externalServices().count
     }
 
-    private init(service: CFTypeRef, location: String,
+    private init(service: CFTypeRef, location: String, serviceInfo: DDCServiceInfo?,
                  create: @escaping CreateWithServiceFn,
                  write: @escaping WriteI2CFn,
                  read: @escaping ReadI2CFn) {
         self.service = service
         self.serviceLocation = location
+        self.serviceInfo = serviceInfo
         self.createWithService = create
         self.writeI2C = write
         self.readI2C = read
