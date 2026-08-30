@@ -167,27 +167,18 @@ public final class TouchDriver {
     // MARK: Mapping
 
     private func currentPoint() -> CGPoint? {
-        var nx = CGFloat(rawX) / CGFloat(max(maxX, 1))
-        var ny = CGFloat(rawY) / CGFloat(max(maxY, 1))
-        nx = min(max(nx, 0), 1)
-        ny = min(max(ny, 0), 1)
-
-        switch ((configuration.rotation % 360) + 360) % 360 {
-        case 90: (nx, ny) = (1 - ny, nx)
-        case 180: (nx, ny) = (1 - nx, 1 - ny)
-        case 270: (nx, ny) = (ny, 1 - nx)
-        default: break
-        }
-        if configuration.invertX { nx = 1 - nx }
-        if configuration.invertY { ny = 1 - ny }
+        let n = TouchMapping.normalized(rawX: rawX, rawY: rawY, maxX: maxX, maxY: maxY,
+                                        rotation: configuration.rotation,
+                                        invertX: configuration.invertX,
+                                        invertY: configuration.invertY)
 
         guard let display else {
             // No Edge display located: report panel-native coordinates so
             // diagnostics still work; injection stays off in that case.
-            return CGPoint(x: nx * EdgeConstants.nativeWidth,
-                           y: ny * EdgeConstants.nativeHeight)
+            return CGPoint(x: n.x * EdgeConstants.nativeWidth,
+                           y: n.y * EdgeConstants.nativeHeight)
         }
-        return display.globalPoint(normalizedX: nx, normalizedY: ny)
+        return display.globalPoint(normalizedX: n.x, normalizedY: n.y)
     }
 
     // MARK: Contact state machine

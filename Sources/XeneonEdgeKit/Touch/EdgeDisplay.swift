@@ -48,6 +48,15 @@ public struct EdgeDisplay {
     /// Maps a normalized touch position (0...1 in both axes, origin top-left
     /// of the panel) to a point in global CoreGraphics coordinates.
     public func globalPoint(normalizedX: CGFloat, normalizedY: CGFloat) -> CGPoint {
+        Self.globalPoint(normalizedX: normalizedX, normalizedY: normalizedY, in: bounds)
+    }
+}
+
+public extension EdgeDisplay {
+    /// Pure form of `globalPoint(normalizedX:normalizedY:)`; kept separate so
+    /// the mapping is checkable without a real NSScreen.
+    static func globalPoint(normalizedX: CGFloat, normalizedY: CGFloat,
+                            in bounds: CGRect) -> CGPoint {
         let b = bounds
         let x = b.origin.x + normalizedX * b.width
         let y = b.origin.y + normalizedY * b.height
