@@ -3,11 +3,23 @@
 //
 // Touchscreen driver for the XENEON EDGE.
 //
-// The Edge's digitizer enumerates as a separate USB HID device (27c0:0859)
-// reporting absolute X/Y (Generic Desktop) plus a contact state (Button 1 on
-// this controller; standard digitizer Tip Switch is handled too). macOS has
-// no built-in touchscreen support, so this driver maps contacts onto the
-// Edge's portion of the desktop and synthesizes mouse events:
+// The Edge's touch controller enumerates as a separate USB HID device
+// (27c0:0859) that exposes three interfaces under one VID/PID: a digitizer
+// (0x0D/0x04, ten contact slots, Tip Switch), a mouse emulation (0x01/0x02,
+// absolute X/Y plus Button 1) and a vendor channel (0xFF0A/0xFF).
+//
+// Which of the two input interfaces actually reports is decided by the
+// digitizer's `Device Mode` feature (0x0D/0x52). The Edge powers up with
+// Device Mode = 0 — mouse mode — and then sends nothing at all on the
+// digitizer; verified at the connected device by reading the feature report.
+// Switching it would be a HID *write* to the controller and is out of scope
+// here, so the driver opens both input interfaces: the mouse emulation
+// carries today's contacts, the digitizer path stays in place (including the
+// contact-slot binding) for the day the mode is switched. The vendor channel
+// is never opened.
+//
+// macOS has no built-in touchscreen support, so this driver maps contacts
+// onto the Edge's portion of the desktop and synthesizes mouse events:
 //
 //   tap            -> left click
 //   tap-tap        -> double click
@@ -58,6 +70,8 @@ public struct TouchDriverConfiguration {
 public struct TouchDiagnostics: Equatable {
     public enum Phase: String { case down, moved, up }
     public let phase: Phase
+    /// HID interface the last value came from.
+    public let interface: TouchInterface
     /// Contact slot the last value came from (nil = unknown).
     public let slot: Int?
     public let rawX: Int
@@ -69,9 +83,11 @@ public struct TouchDiagnostics: Equatable {
     /// Global CoreGraphics coordinates (or panel coordinates without a display).
     public let mapped: CGPoint
 
-    public init(phase: Phase, slot: Int?, rawX: Int, rawY: Int, maxX: Int, maxY: Int,
+    public init(phase: Phase, interface: TouchInterface = .unknown, slot: Int?,
+                rawX: Int, rawY: Int, maxX: Int, maxY: Int,
                 normalized: CGPoint, mapped: CGPoint) {
         self.phase = phase
+        self.interface = interface
         self.slot = slot
         self.rawX = rawX
         self.rawY = rawY
@@ -116,9 +132,19 @@ public final class TouchDriver {
 
     private var targetBounds: CGRect? { targetBoundsOverride ?? display?.bounds }
 
-    /// Element cookie -> contact slot, built once per matched device from the
-    /// report descriptor. The finger collections appear there in slot order.
-    private var slotForCookie: [IOHIDElementCookie: Int] = [:]
+    /// Per device: element cookie -> contact slot, built once per matched
+    /// device from the report descriptor. The finger collections appear there
+    /// in slot order. Keyed by device because cookies are only unique within
+    /// one device — the mouse emulation's cookies overlap the digitizer's.
+    private var slotTables: [ObjectIdentifier: [IOHIDElementCookie: Int]] = [:]
+    /// Per device: which interface it is, for sample tagging and diagnostics.
+    private var interfaceForDevice: [ObjectIdentifier: TouchInterface] = [:]
+    /// Matched devices currently present. Two interfaces are opened, so
+    /// connect/disconnect must only be reported on the first and the last.
+    private var openDevices: Set<ObjectIdentifier> = []
+    /// Interface of the value last handed to `handle(sample:)`, for
+    /// diagnostics reporting.
+    private var lastInterface: TouchInterface = .unknown
 
     // Raw axis state
     private var rawX = 0
@@ -169,28 +195,26 @@ public final class TouchDriver {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         self.manager = manager
 
-        let matching: [String: Any] = [
-            kIOHIDVendorIDKey as String: EdgeConstants.touchVendorID,
-            kIOHIDProductIDKey as String: EdgeConstants.touchProductID,
-            kIOHIDDeviceUsagePageKey as String: EdgeConstants.digitizerUsagePage,
-            kIOHIDDeviceUsageKey as String: EdgeConstants.digitizerUsage,
-        ]
-        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        let matching = TouchDriver.openedInterfaces.map { iface -> [String: Any] in
+            [
+                kIOHIDVendorIDKey as String: EdgeConstants.touchVendorID,
+                kIOHIDProductIDKey as String: EdgeConstants.touchProductID,
+                kIOHIDDeviceUsagePageKey as String: iface.usagePage,
+                kIOHIDDeviceUsageKey as String: iface.usage,
+            ]
+        }
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matching as CFArray)
 
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
             let me = Unmanaged<TouchDriver>.fromOpaque(context).takeUnretainedValue()
-            me.indexContactSlots(of: device)
-            me.deviceConnected = true
-            me.delegate?.touchDriver(me, deviceConnected: true)
+            me.deviceAppeared(device)
         }, context)
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, _ in
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             guard let context else { return }
             let me = Unmanaged<TouchDriver>.fromOpaque(context).takeUnretainedValue()
-            me.slotForCookie.removeAll()
-            me.deviceConnected = false
-            me.delegate?.touchDriver(me, deviceConnected: false)
+            me.deviceVanished(device)
         }, context)
         IOHIDManagerRegisterInputValueCallback(manager, { context, _, _, value in
             guard let context else { return }
@@ -215,11 +239,13 @@ public final class TouchDriver {
     private func handle(value: IOHIDValue) {
         guard enabled else { return }
         let element = IOHIDValueGetElement(value)
+        let device = ObjectIdentifier(IOHIDElementGetDevice(element))
         let sample = TouchSample(usagePage: IOHIDElementGetUsagePage(element),
                                  usage: IOHIDElementGetUsage(element),
                                  value: IOHIDValueGetIntegerValue(value),
                                  logicalMax: IOHIDElementGetLogicalMax(element),
-                                 slot: slotForCookie[IOHIDElementGetCookie(element)])
+                                 slot: slotTables[device]?[IOHIDElementGetCookie(element)],
+                                 interface: interfaceForDevice[device] ?? .unknown)
         handle(sample: sample)
     }
 
@@ -229,27 +255,64 @@ public final class TouchDriver {
         // The digitizer declares ten identical finger collections; only the
         // first drives the cursor. Values from slots 1-9 must not touch
         // rawX/rawY/touching, or an unused slot reporting 0 would drag the
-        // cursor into the panel corner. Fallback: if slot indexing found
-        // nothing (unexpected descriptor), sample.slot stays nil here and
-        // every value is processed as before.
+        // cursor into the panel corner. The mouse emulation has no slots, so
+        // its samples carry nil and pass. Same fallback for an unexpected
+        // descriptor: slot stays nil, every value is processed as before.
         if let slot = sample.slot, slot != 0 { return }
+        lastInterface = sample.interface
 
         switch (sample.usagePage, sample.usage) {
-        case (0x01, 0x30): // Generic Desktop / X
+        case (0x01, 0x30): // Generic Desktop / X (absolute on both interfaces)
             rawX = sample.value
             if sample.logicalMax > 0 { maxX = sample.logicalMax }
             if touching { contactMoved(slot: sample.slot) }
-        case (0x01, 0x31): // Generic Desktop / Y
+        case (0x01, 0x31): // Generic Desktop / Y (absolute on both interfaces)
             rawY = sample.value
             if sample.logicalMax > 0 { maxY = sample.logicalMax }
             if touching { contactMoved(slot: sample.slot) }
-        case (0x0D, 0x42): // Digitizer / Tip Switch — the only contact source
-                           // on this interface. Button 1 (0x09/0x01) lives on
-                           // the mouse-emulation interface, which this driver
-                           // does not open.
+        case (0x09, 0x01), // Button 1 — contact on the mouse emulation, which
+                           // is what the Edge reports in its power-on mode
+             (0x0D, 0x42): // Digitizer / Tip Switch — contact on the
+                           // digitizer, silent until Device Mode is switched
+            // Only one of the two interfaces reports at a time; should both
+            // ever do so, the guards in contactDown/contactUp collapse the
+            // duplicate into a single gesture.
             if sample.value != 0 { contactDown(slot: sample.slot) } else { contactUp(slot: sample.slot) }
         default:
             break
+        }
+    }
+
+    // MARK: Device bookkeeping
+
+    private func deviceAppeared(_ device: IOHIDDevice) {
+        let id = ObjectIdentifier(device)
+        interfaceForDevice[id] = TouchDriver.interface(of: device)
+        indexContactSlots(of: device)
+        let wasConnected = !openDevices.isEmpty
+        openDevices.insert(id)
+        guard !wasConnected else { return }
+        deviceConnected = true
+        delegate?.touchDriver(self, deviceConnected: true)
+    }
+
+    private func deviceVanished(_ device: IOHIDDevice) {
+        let id = ObjectIdentifier(device)
+        slotTables.removeValue(forKey: id)
+        interfaceForDevice.removeValue(forKey: id)
+        openDevices.remove(id)
+        guard openDevices.isEmpty else { return }
+        deviceConnected = false
+        delegate?.touchDriver(self, deviceConnected: false)
+    }
+
+    private static func interface(of device: IOHIDDevice) -> TouchInterface {
+        let page = (IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int) ?? 0
+        let usage = (IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int) ?? 0
+        switch (page, usage) {
+        case (EdgeConstants.digitizerUsagePage, EdgeConstants.digitizerUsage): return .digitizer
+        case (EdgeConstants.touchMouseUsagePage, EdgeConstants.touchMouseUsage): return .mouseEmulation
+        default: return .unknown
         }
     }
 
@@ -260,11 +323,13 @@ public final class TouchDriver {
     /// second finger collection under `(0x0D, 0x0E)` (Device Configuration)
     /// that is not a contact slot.
     private func indexContactSlots(of device: IOHIDDevice) {
-        slotForCookie.removeAll()
+        let id = ObjectIdentifier(device)
+        slotTables[id] = [:]
         guard let elements = IOHIDDeviceCopyMatchingElements(
             device, nil, IOOptionBits(kIOHIDOptionsTypeNone)
         ) as? [IOHIDElement] else { return }
 
+        var slotForCookie: [IOHIDElementCookie: Int] = [:]
         var slotForFingerCookie: [IOHIDElementCookie: Int] = [:]
         for element in elements {
             guard let finger = IOHIDElementGetParent(element) else { continue }
@@ -281,6 +346,7 @@ public final class TouchDriver {
             slotForFingerCookie[fingerCookie] = slot
             slotForCookie[IOHIDElementGetCookie(element)] = slot
         }
+        slotTables[id] = slotForCookie
     }
 
     // MARK: Mapping
@@ -411,7 +477,8 @@ public final class TouchDriver {
                                         invertX: configuration.invertX,
                                         invertY: configuration.invertY)
         delegate?.touchDriver(self, didObserve: TouchDiagnostics(
-            phase: phase, slot: slot, rawX: rawX, rawY: rawY, maxX: maxX, maxY: maxY,
+            phase: phase, interface: lastInterface, slot: slot,
+            rawX: rawX, rawY: rawY, maxX: maxX, maxY: maxY,
             normalized: n, mapped: point))
     }
 
@@ -433,11 +500,64 @@ public struct TouchInterfaceInfo: Equatable {
     public let usagePage: Int
     public let usage: Int
     public let elementCount: Int
-    /// True for the interface that `start()` opens.
+    /// True for the interfaces that `start()` opens.
     public let matchedByDriver: Bool
 }
 
 public extension TouchDriver {
+    /// The interfaces `start()` matches on. The digitizer is listed first
+    /// because it is the one that carries real contact slots; it only
+    /// reports once `Device Mode` is switched away from mouse mode.
+    static var openedInterfaces: [(usagePage: Int, usage: Int)] {
+        [
+            (EdgeConstants.digitizerUsagePage, EdgeConstants.digitizerUsage),
+            (EdgeConstants.touchMouseUsagePage, EdgeConstants.touchMouseUsage),
+        ]
+    }
+
+    /// The digitizer's `Device Mode` feature (`0x0D/0x52`), read back from
+    /// the device. `EdgeConstants.digitizerDeviceModeMouse` (0) means the
+    /// controller reports through the mouse emulation and the digitizer
+    /// interface stays silent. nil when the interface or the element is not
+    /// there. Read-only: this issues a Get Feature request, never a write.
+    static func digitizerDeviceMode() -> Int? {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerSetDeviceMatching(manager, [
+            kIOHIDVendorIDKey as String: EdgeConstants.touchVendorID,
+            kIOHIDProductIDKey as String: EdgeConstants.touchProductID,
+            kIOHIDDeviceUsagePageKey as String: EdgeConstants.digitizerUsagePage,
+            kIOHIDDeviceUsageKey as String: EdgeConstants.digitizerUsage,
+        ] as CFDictionary)
+        guard IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess,
+              let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>,
+              let device = devices.first
+        else {
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            return nil
+        }
+        defer { IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone)) }
+
+        let modeMatching: [String: Any] = [
+            kIOHIDElementUsagePageKey as String: EdgeConstants.digitizerUsagePage,
+            kIOHIDElementUsageKey as String: EdgeConstants.digitizerDeviceModeUsage,
+        ]
+        guard let elements = IOHIDDeviceCopyMatchingElements(
+                  device, modeMatching as CFDictionary, IOOptionBits(kIOHIDOptionsTypeNone)
+              ) as? [IOHIDElement],
+              let element = elements.first
+        else { return nil }
+
+        guard IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess
+        else { return nil }
+        defer { IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone)) }
+
+        // IOHIDDeviceGetValue wants a valid IOHIDValue to overwrite.
+        var value = Unmanaged.passUnretained(
+            IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, element, 0, 0))
+        guard IOHIDDeviceGetValue(device, element, &value) == kIOReturnSuccess else { return nil }
+        return Int(IOHIDValueGetIntegerValue(value.takeUnretainedValue()))
+    }
+
     /// All HID interfaces of the touch controller (VID/PID), with which one
     /// the driver actually opens. Read-only, only used for `xeneonctl probe`.
     static func touchInterfaces() -> [TouchInterfaceInfo] {
@@ -461,8 +581,8 @@ public extension TouchDriver {
             let elementCount = (IOHIDDeviceCopyMatchingElements(
                 device, nil, IOOptionBits(kIOHIDOptionsTypeNone)
             ) as? [IOHIDElement])?.count ?? 0
-            let matched = usagePage == EdgeConstants.digitizerUsagePage
-                && usage == EdgeConstants.digitizerUsage
+            let matched = TouchDriver.openedInterfaces
+                .contains { $0.usagePage == usagePage && $0.usage == usage }
             return TouchInterfaceInfo(usagePage: usagePage, usage: usage,
                                       elementCount: elementCount, matchedByDriver: matched)
         }

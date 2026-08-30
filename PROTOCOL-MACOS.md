@@ -19,33 +19,86 @@ Das XENEON EDGE meldet sich am USB-Bus als **mehrere unabhängige Geräte**:
 Der Touch-Controller `27c0:0859` meldet unter derselben VID/PID **drei**
 unabhängige HID-Interfaces; ein Matching allein auf VID/PID öffnet alle drei:
 
-| Interface | Usage Page/Usage | Inhalt | Von diesem Treiber geöffnet |
-|---|---|---|---|
-| Digitizer | `0x0D`/`0x04` | 10 Kontaktslots, siehe unten | ja |
-| Maus-Emulation | `0x01`/`0x02` | 1× X/Y/Wheel, Button 1/2/3 (`0x09`) | nein |
-| Hersteller-Kanal | `0xFF0A`/`0xFF` | wch.cn-spezifisch, ungenutzt | nein |
+| Interface | Usage Page/Usage | Report-ID | Inhalt | Von diesem Treiber geöffnet |
+|---|---|---|---|---|
+| Digitizer | `0x0D`/`0x04` | `0x0D` | 10 Kontaktslots, siehe unten | ja (liefert aber nichts, s. u.) |
+| Maus-Emulation | `0x01`/`0x02` | `0x07` | 1× X/Y **absolut** (`logicalMax` 16383 / 9599, identisch zum Digitizer), Wheel, Button 1/2/3 (`0x09`) | ja — **hier kommen die Kontakte an** |
+| Hersteller-Kanal | `0xFF0A`/`0xFF` | `0x50`/`0x51` | wch.cn-spezifisch, ungenutzt | nein |
+
+### Welches Interface liefert — `Device Mode` (`0x0D`/`0x52`)
+
+Am Ende des Digitizer-Deskriptors steht eine zweite Application Collection
+`Digitizer / Device Configuration` (`0x0D`/`0x0E`, Report-ID `0x21`) mit den
+Feature-Usages `Device Mode` (`0x52`) und `Device Identifier` (`0x53`):
+
+```
+05 0D 09 0E A1 01   Usage Page Digitizer, Usage 0x0E (Device Configuration), Collection Application
+85 21               Report ID 0x21
+09 22 A1 00         Usage Finger, Collection Physical
+09 52 09 53         Usage Device Mode, Usage Device Identifier
+15 00 25 0A         Logical Minimum 0, Logical Maximum 10
+75 08 95 02 B1 02   2 × 8 Bit, FEATURE (Data,Var,Abs)
+C0 C0
+```
+
+Am angeschlossenen Edge liest ein **Get Feature** auf dieses Element
+(`xeneonctl probe`, rein lesend):
+
+```
+Device Mode (0x0D/0x52): 0 = mouse mode
+Contact Count Maximum (0x0D/0x55, Report-ID 0x0A): 15
+```
+
+`Device Mode = 0` heißt Maus-Modus: Der Controller sendet ausschließlich
+Report `0x07` auf der Maus-Emulation und auf dem Digitizer-Interface
+**überhaupt keine Reports** — ein Listener dort bleibt stumm, obwohl das
+Gerät sauber matcht und sich öffnen lässt. Am Gerät nachgewiesen: Ein Build,
+der nur `0x0D`/`0x04` öffnete, meldete „connected“, aber kein einziges
+Ereignis; die Slot-Tabelle war dabei korrekt aufgebaut (40 Cookies,
+10 Slots).
+
+Daraus folgt das heutige Verhalten des Treibers: Er öffnet **beide**
+Eingabe-Interfaces. Die Maus-Emulation trägt die Kontakte
+(Button 1 `0x09/0x01` als Kontaktzustand, absolutes X/Y), der Digitizer-Pfad
+inklusive Kontaktslot-Bindung bleibt bestehen und greift, sobald der Modus
+umgeschaltet ist. Der Hersteller-Kanal bleibt zu.
+
+**Den Modus umzuschalten wäre ein HID-Write** (Set Feature auf `0x0D/0x52`)
+an den Touch-Controller und ist in diesem Projekt bewusst **nicht**
+implementiert — das ist eine eigene Produktentscheidung mit eigenem Issue,
+nicht Teil von #10. Das Write-Gate in `BragiDevice` betrifft nur den
+Corsair-Vendor-Kanal `1b1c:1d0d` und ist davon unberührt.
 
 Der Digitizer im Detail:
 
-- **10 Kontaktslots** (`Contact Count Maximum`, Feature `0x0D/0x55`,
-  `logicalMax = 15`; `MaxInputReportSize = 54` = 1 Report-ID + 10 × 5 Byte +
-  2 Byte Scan Time + 1 Byte Contact Count) — nicht „5-Punkt kapazitiv“, wie
-  frühere Fassungen dieser Datei behaupteten. Alle zehn Finger-Collections
-  sind im Deskriptor identisch aufgebaut; der Treiber bindet HID-Element-
-  Cookies über deren Eltern-Collection an den jeweiligen Kontaktslot und
-  verarbeitet ausschließlich Slot 0 — ungenutzte Slots melden sonst `0` und
-  würden den Cursor in die Panel-Ecke ziehen.
+- **10 Kontaktslots** im Deskriptor; `Contact Count Maximum` (Feature
+  `0x0D/0x55`, Report-ID `0x0A`) liest am Gerät **15**, `logicalMax = 15`;
+  `MaxInputReportSize = 54` = 1 Report-ID + 10 × 5 Byte + 2 Byte Scan Time +
+  1 Byte Contact Count — nicht „5-Punkt kapazitiv“, wie frühere Fassungen
+  dieser Datei behaupteten. Alle zehn Finger-Collections sind im Deskriptor
+  identisch aufgebaut; der Treiber bindet HID-Element-Cookies über deren
+  Eltern-Collection an den jeweiligen Kontaktslot und verarbeitet
+  ausschließlich Slot 0 — ungenutzte Slots melden sonst `0` und würden den
+  Cursor in die Panel-Ecke ziehen. Die Cookie-Tabelle wird **pro Gerät**
+  geführt: Cookies sind nur innerhalb eines HID-Geräts eindeutig, die der
+  Maus-Emulation überschneiden sich mit denen des Digitizers.
 - Report: Generic Desktop `X` (Usage `0x30`) und `Y` (Usage `0x31`), absolut,
   je zehnmal (einmal pro Slot).
 - Logischer Wertebereich: X `0–16383`, Y `0–9599` (wird zur Sicherheit zur
   Laufzeit aus den HID-Elementen gelesen; am Gerät bestätigt).
 - Kontaktzustand: Digitizer Tip Switch `0x0D/0x42`. **Button 1 (`0x09/0x01`)
   liegt auf der Maus-Emulation, nicht auf dem Digitizer** — frühere Fassungen
-  dieser Datei und ein Codekommentar behaupteten das Gegenteil; der Treiber
-  öffnet die Maus-Emulation seit Issue #10 gar nicht mehr.
+  dieser Datei und ein Codekommentar behaupteten das Gegenteil. Der Treiber
+  verarbeitet beide Quellen; im Auslieferungszustand des Geräts ist nur
+  Button 1 aktiv.
 - Die Physical-Extents des Deskriptors (X 21,69 cm, Y 9,06 cm; Unit
   Exponent −2) sind **unbrauchbar**: bei 14,5″ und 32:9 wären ≈ 35,4 × 9,97 cm
   zu erwarten. Der Code verwendet sie bewusst nicht.
+- **Achsenlage am montierten Gerät geprüft** (Issue #4): keine Korrektur
+  nötig, `touchRotation = 0`, `invertX = false`, `invertY = false`. Oben
+  links ergab `(1373, 2586)`, unten rechts `(3771, 3236)` bei
+  Panel-Bounds `(1280, 2560) … (3840, 3280)`; ein Wisch links → rechts lief
+  von `x = 1350` nach `x = 3784`.
 - Der Treiber normalisiert die Rohkoordinaten, wendet optional Rotation /
   Spiegelung an und bildet auf die globalen CoreGraphics-Koordinaten des
   Edge-Displays ab. Injektion über `CGEvent` (links/rechts, Drag, Doppelklick,

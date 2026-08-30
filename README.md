@@ -111,19 +111,25 @@ Am angeschlossenen XENEON EDGE (Apple M1 Max) verifiziert (Issue #10):
       `01 02 13 …`, davor stumm wegen eines abgeschnittenen Report-ID-Bytes)
 - [x] DDC/CI-Lesen ohne manuellen `--display`-Index (`xeneonctl brightness`,
       zuvor `IOReturn 0xE0114000` auf dem Default-Index)
-- [x] Touch-Digitizer wird als einziges der drei HID-Interfaces des
-      Touch-Controllers geöffnet, Kontaktslot 0 sauber isoliert
+- [x] Touch-Ereignisse kommen an: Der Controller startet im Maus-Modus
+      (`Device Mode` `0x0D/0x52` liest `0`) und liefert Kontakte über die
+      Maus-Emulation `0x01/0x02`; das Digitizer-Interface `0x0D/0x04`
+      sendet in diesem Modus gar nichts. Der Treiber öffnet beide
+      Eingabe-Interfaces, nicht aber den Hersteller-Kanal; die
+      Kontaktslot-Bindung des Digitizers bleibt für den Digitizer-Modus
+      erhalten
+- [x] Achsenlage: keine Korrektur nötig (`touchRotation = 0`,
+      `invertX/invertY = false`) — oben links `(1373, 2586)`, unten rechts
+      `(3771, 3236)` bei Panel-Bounds `(1280, 2560) … (3840, 3280)`
 - [x] Cursor-Rücksprung nach jeder Touch-Geste (`restoreCursorAfterTouch`)
 
 Weiterhin offen (siehe #4):
 
-- [ ] Welche `touchRotation`/`invertX`/`invertY`-Kombination am montierten
-      Panel stimmt — `xeneonctl touch-monitor` gibt dafür jetzt Rohwerte,
-      Slot und normalisierte Koordinaten aus
-- [ ] Ob die Maus-Emulations-Schnittstelle des Touch-Controllers im Betrieb
-      selbst Reports liefert (macOS würde den Cursor dann zusätzlich nativ
-      bewegen); falls ja, wäre die Abhilfe ein Feature-Write an den
-      Controller — bewusst nicht Teil von #10
+- [ ] Den Digitizer-Modus überhaupt nutzbar machen: dafür wäre ein
+      **HID-Write** (Set Feature `Device Mode` `0x0D/0x52`) an den
+      Touch-Controller nötig — eigene Entscheidung, eigenes Issue,
+      bewusst nicht Teil von #10. Erst damit werden Mehrfinger-Gesten (#6)
+      technisch möglich
 - [ ] Ob `brightness <wert>` das Panel sichtbar ändert (Schreibzugriff,
       absichtlich nicht automatisiert getestet)
 - [ ] Mehrfinger-Gesten (Scrollen mit zwei Fingern) — #6

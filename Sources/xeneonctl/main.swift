@@ -59,9 +59,19 @@ func openDDC() -> DDCControl {
 func touchInterfaceName(_ info: TouchInterfaceInfo) -> String {
     switch (info.usagePage, info.usage) {
     case (EdgeConstants.digitizerUsagePage, EdgeConstants.digitizerUsage): return "digitizer"
-    case (0x01, 0x02): return "mouse emulation"
-    case (0xFF0A, 0xFF): return "vendor channel"
+    case (EdgeConstants.touchMouseUsagePage, EdgeConstants.touchMouseUsage): return "mouse emulation"
+    case (EdgeConstants.touchVendorChannelUsagePage, EdgeConstants.touchVendorChannelUsage):
+        return "vendor channel"
     default: return "unknown"
+    }
+}
+
+/// Short label of the interface a touch sample arrived on.
+func touchInterfaceLabel(_ interface: TouchInterface) -> String {
+    switch interface {
+    case .digitizer: return "digitizer"
+    case .mouseEmulation: return "mouse    "
+    case .unknown: return "?        "
     }
 }
 
@@ -93,6 +103,17 @@ case "probe":
             let marker = iface.matchedByDriver ? " <- driver" : ""
             let prefix = i == 0 ? "Touch HID : " : "            "
             print("\(prefix)\(label) \(touchInterfaceName(iface)) (\(iface.elementCount) elements)\(marker)")
+        }
+        // Which of the two input interfaces actually reports is decided by
+        // this feature value, so it belongs next to the interface list.
+        switch TouchDriver.digitizerDeviceMode() {
+        case nil:
+            print("            Device Mode (0x0D/0x52): not readable")
+        case EdgeConstants.digitizerDeviceModeMouse:
+            print("            Device Mode (0x0D/0x52): 0 = mouse mode " +
+                  "(digitizer stays silent, contacts arrive on the mouse emulation)")
+        case .some(let mode):
+            print("            Device Mode (0x0D/0x52): \(mode) (digitizer mode)")
         }
     }
 
@@ -198,12 +219,13 @@ case "touch-monitor":
             case .moved: label = "MOVE"
             case .up: label = "UP  "
             }
+            let iface = touchInterfaceLabel(diagnostics.interface)
             let slot = diagnostics.slot.map(String.init) ?? "?"
             let raw = String(format: "(%6d,%6d)", diagnostics.rawX, diagnostics.rawY)
             let maxima = "(\(diagnostics.maxX),\(diagnostics.maxY))"
             let norm = String(format: "(%.3f,%.3f)", diagnostics.normalized.x, diagnostics.normalized.y)
             let mapped = "(\(Int(diagnostics.mapped.x)), \(Int(diagnostics.mapped.y)))"
-            print("\(label) slot=\(slot) raw=\(raw)/\(maxima) norm=\(norm) -> \(mapped)")
+            print("\(label) if=\(iface) slot=\(slot) raw=\(raw)/\(maxima) norm=\(norm) -> \(mapped)")
         }
     }
     let driver = TouchDriver()

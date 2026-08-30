@@ -101,9 +101,10 @@ mit drei externen Displays, eines davon der Edge):
 Display   : XENEON EDGE (id 1)
 Bounds    : 2560x720 at (1280, 2560)
 Vendor HID: XENEON EDGE / CORSAIR / SN 320225465656
-Touch HID : 0x0D/0x04 digitizer (66 elements) <- driver
-            0x01/0x02 mouse emulation (12 elements)
+Touch HID : 0x01/0x02 mouse emulation (12 elements) <- driver
+            0x0D/0x04 digitizer (66 elements) <- driver
             0xFF0A/0xFF vendor channel (9 elements)
+            Device Mode (0x0D/0x52): 0 = mouse mode (digitizer stays silent, contacts arrive on the mouse emulation)
 DDC       : 4 external display I2C service(s)
             [0] dispextE  — (no framebuffer, unusable)
             [1] dispext2  XENEON EDGE <- Edge
@@ -118,9 +119,17 @@ Access    : Accessibility granted, Input Monitoring granted
   I2C-Service, wie er auf manchen Systemen unter Index 0 liegt — die App
   wählt den Edge seit Issue #10 über seine Display-Identität, nicht mehr
   über diesen Index; `--display <n>` bleibt als manuelle Übersteuerung.
+- **`Device Mode: 0`** ist der Normalfall: Der Touch-Controller startet im
+  Maus-Modus und meldet Berührungen über die Maus-Emulation; das
+  Digitizer-Interface bleibt dabei stumm. Der Treiber öffnet deshalb beide
+  Eingabe-Interfaces (den Hersteller-Kanal nicht).
 - **Touch testen ohne Klicks auszulösen**: `xeneonctl touch-monitor`
   (reine Diagnose, es werden keine Mausereignisse erzeugt; gibt Interface,
   Kontaktslot, Rohwerte und normalisierte Koordinaten je Ereignis aus).
+- **Achsen**: Am hier geprüften Gerät ist **keine** Korrektur nötig —
+  `touchRotation = 0`, `touchInvertX = false`, `touchInvertY = false`
+  (die Standardwerte). Oben links auf dem Panel ergibt `(1373, 2586)`,
+  unten rechts `(3771, 3236)`, passend zu den Bounds oben.
 - **Cursor-Rücksprung**: Nach jeder abgeschlossenen Touch-Geste springt der
   Mauszeiger an seine vorherige Position zurück. Abschaltbar über
   `restoreCursorAfterTouch: false` in `config.json`
@@ -273,7 +282,7 @@ gespeichert.
 
 | Symptom | Ursache / Lösung |
 |---|---|
-| Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen (bricht mit einem Hinweis ab, wenn Eingabemonitoring fehlt) |
+| Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen (bricht mit einem Hinweis ab, wenn Eingabemonitoring fehlt). Die Zeilen tragen mit `if=` das Interface: `mouse` ist der Normalfall, `digitizer` erschiene nur, wenn der Controller nicht mehr im Maus-Modus liefe |
 | Klicks an falscher Stelle | Edge in den macOS-Displayeinstellungen gedreht montiert? `touchRotation` (90/180/270) bzw. `touchInvertX/Y` in `config.json` setzen — `xeneonctl touch-monitor` zeigt dafür Rohwerte und normalisierte Koordinaten je Ereignis |
 | Cursor bleibt nach dem Tippen auf dem Edge stehen | `restoreCursorAfterTouch` in `config.json` auf `true`? (Default an; greift für Tap, Doppeltap, Langdruck-Rechtsklick und Drag-Ende gleichermaßen) |
 | Helligkeit schlägt fehl (`xeneonctl brightness`) | Seit Issue #10 wird der Edge über seine Display-Identität ausgewählt (`--display <n>` ist nur noch die manuelle Übersteuerung). Bleibt es dabei: Intel-Mac (noch nicht unterstützt) oder Dock/Adapter leitet DDC nicht durch → Edge direkt anschließen. `xeneonctl probe` listet die I2C-Services mit Displaynamen |
