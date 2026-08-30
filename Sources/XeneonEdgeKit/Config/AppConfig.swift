@@ -39,6 +39,9 @@ public struct AppConfig: Codable, Equatable {
     public var touchRotation = 0
     public var touchInvertX = false
     public var touchInvertY = false
+    /// Cursor jumps back to its position from before a touch gesture (issue
+    /// #10). Independent of `dragEnabled`.
+    public var restoreCursorAfterTouch = true
 
     // Dashboard
     public var dashboardEnabled = true
@@ -102,6 +105,7 @@ public struct AppConfig: Codable, Equatable {
         touchRotation = try c.decodeIfPresent(Int.self, forKey: .touchRotation) ?? d.touchRotation
         touchInvertX = try c.decodeIfPresent(Bool.self, forKey: .touchInvertX) ?? d.touchInvertX
         touchInvertY = try c.decodeIfPresent(Bool.self, forKey: .touchInvertY) ?? d.touchInvertY
+        restoreCursorAfterTouch = try c.decodeIfPresent(Bool.self, forKey: .restoreCursorAfterTouch) ?? d.restoreCursorAfterTouch
         dashboardEnabled = try c.decodeIfPresent(Bool.self, forKey: .dashboardEnabled) ?? d.dashboardEnabled
         previewWithoutDevice = try c.decodeIfPresent(Bool.self, forKey: .previewWithoutDevice) ?? d.previewWithoutDevice
         showClock = try c.decodeIfPresent(Bool.self, forKey: .showClock) ?? d.showClock

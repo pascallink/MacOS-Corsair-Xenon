@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         tc.rotation = c.touchRotation
         tc.invertX = c.touchInvertX
         tc.invertY = c.touchInvertY
+        tc.restoreCursorAfterTouch = c.restoreCursorAfterTouch
         touchDriver.configuration = tc
     }
 

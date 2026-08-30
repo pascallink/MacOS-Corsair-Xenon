@@ -124,4 +124,25 @@ import Testing
         #expect(decoded.launcherItems[0].name == "VS Code")
         #expect(decoded.launcherItems[0].symbol == "app") // default symbol
     }
+
+    @Test func restoreCursorAfterTouchDefaultsToOn() {
+        #expect(AppConfig().restoreCursorAfterTouch)
+    }
+
+    /// Issue #10: existing config.json files predate this key — it must
+    /// fall back to the new default rather than resetting the whole file.
+    @Test func oldConfigWithoutRestoreCursorKeyGetsTheNewDefault() throws {
+        let json = #"{"ddcDisplayIndex": 0}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.restoreCursorAfterTouch)
+        #expect(decoded.ddcDisplayIndex == 0)
+    }
+
+    @Test func restoreCursorAfterTouchSurvivesARoundTrip() throws {
+        var config = AppConfig()
+        config.restoreCursorAfterTouch = false
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded == config)
+    }
 }

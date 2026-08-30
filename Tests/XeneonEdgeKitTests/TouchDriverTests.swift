@@ -206,4 +206,105 @@ final class RecordingTouchSink: TouchEventSink {
         driver.handle(sample: y(0, slot: 3))
         #expect(!sink.events.contains { $0.kind == .leftDragged })
     }
+
+    // MARK: Step 4 — restoreCursorAfterTouch, independent of dragEnabled
+
+    private func tapGesture(_ driver: TouchDriver) {
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        driver.handle(sample: tip(true))
+        driver.handle(sample: tip(false))
+    }
+
+    @Test func tapRestoresCursor() {
+        let (driver, sink) = makeDriver()
+        tapGesture(driver)
+        sink.runPending()
+        #expect(sink.warps == [CGPoint(x: 100, y: 100)])
+        #expect(sink.events.last?.kind == .moved)
+        #expect(sink.events.last?.point == CGPoint(x: 100, y: 100))
+    }
+
+    @Test func dragEndRestoresCursor() {
+        let (driver, sink) = makeDriver()
+        driver.configuration.dragEnabled = true // the default
+        driver.handle(sample: x(0))
+        driver.handle(sample: y(0))
+        driver.handle(sample: tip(true))
+        driver.handle(sample: x(8000)) // drag
+        driver.handle(sample: tip(false))
+        sink.runPending()
+        #expect(sink.warps == [CGPoint(x: 100, y: 100)])
+    }
+
+    @Test func longPressRestoresCursor() {
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        driver.handle(sample: tip(true))
+        sink.advance(0.6) // fires the right click
+        driver.handle(sample: tip(false))
+        sink.runPending()
+        #expect(sink.warps == [CGPoint(x: 100, y: 100)])
+    }
+
+    @Test func doubleTapRestoresCursorAndKeepsClickState() {
+        let (driver, sink) = makeDriver()
+        tapGesture(driver)
+        sink.runPending()
+        tapGesture(driver)
+        sink.runPending()
+        #expect(sink.warps.count == 2)
+        #expect(sink.events.last { $0.kind == .leftUp }?.clickState == 2)
+    }
+
+    @Test func optionOffDoesNotWarp() {
+        let (driver, sink) = makeDriver()
+        driver.configuration.restoreCursorAfterTouch = false
+        tapGesture(driver)
+        sink.runPending()
+        #expect(sink.warps.isEmpty)
+        #expect(sink.cursorQueries == 0)
+    }
+
+    @Test func injectionDisabledDoesNotWarp() {
+        let (driver, sink) = makeDriver()
+        driver.injectionEnabled = false
+        tapGesture(driver)
+        sink.runPending()
+        #expect(sink.warps.isEmpty)
+    }
+
+    @Test func cursorIsSavedBeforeTheDownEventIsPosted() {
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        // cursorLocation() is queried inside contactDown, before postMouse
+        // ever calls eventSink.post — the recorder has no events yet then.
+        let eventsBeforeDown = sink.events.count
+        driver.handle(sample: tip(true))
+        #expect(eventsBeforeDown == 0)
+        #expect(sink.cursorQueries == 1)
+    }
+
+    @Test func restoreIsDeferredByOneTurn() {
+        let (driver, sink) = makeDriver()
+        tapGesture(driver)
+        #expect(sink.warps.isEmpty) // not yet, before runPending()/advance()
+        sink.runPending()
+        #expect(sink.warps == [CGPoint(x: 100, y: 100)])
+    }
+
+    @Test func dragEnabledAndRestoreAreIndependent() {
+        for dragEnabled in [true, false] {
+            for restore in [true, false] {
+                let (driver, sink) = makeDriver()
+                driver.configuration.dragEnabled = dragEnabled
+                driver.configuration.restoreCursorAfterTouch = restore
+                tapGesture(driver)
+                sink.runPending()
+                #expect(sink.warps.isEmpty == !restore)
+            }
+        }
+    }
 }

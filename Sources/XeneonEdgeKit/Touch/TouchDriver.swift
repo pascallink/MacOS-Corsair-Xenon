@@ -14,6 +14,10 @@
 //   touch + move   -> drag (mouse down, drag, up)
 //   long press     -> right click (configurable)
 //
+// After every finished gesture the cursor jumps back to where it stood
+// before the touch (restoreCursorAfterTouch, on by default) so the user
+// does not have to pull the mouse off the Edge again.
+//
 // Requires the Accessibility permission (event injection) and Input
 // Monitoring (HID capture).
 
@@ -38,6 +42,11 @@ public struct TouchDriverConfiguration {
     /// Mirror axes (for unusual mounting).
     public var invertX = false
     public var invertY = false
+    /// After a finished gesture, the cursor jumps back to where it stood
+    /// before the touch — the user does not have to pull the mouse off the
+    /// Edge. Independent of `dragEnabled`; applies to tap, double tap,
+    /// long-press right click and drag end.
+    public var restoreCursorAfterTouch = true
 
     public init() {}
 }
@@ -252,7 +261,8 @@ public final class TouchDriver {
         downPoint = point
         downTime = eventSink.now()
         lastPoint = point
-        savedCursorPosition = configuration.dragEnabled ? nil : eventSink.cursorLocation()
+        savedCursorPosition = configuration.restoreCursorAfterTouch
+            ? eventSink.cursorLocation() : nil
 
         delegate?.touchDriver(self, didTouchAt: point, down: true)
 
@@ -284,24 +294,40 @@ public final class TouchDriver {
         delegate?.touchDriver(self, didTouchAt: point, down: false)
 
         if longPressFired {
-            return // right click already delivered
+            restoreCursorIfNeeded() // right click already delivered
+            return
         }
 
         if configuration.dragEnabled {
             postMouse(.leftUp, at: point, clickState: clickState(for: downPoint))
         } else {
-            // Tap-only mode: click, then restore the cursor.
             let state = clickState(for: downPoint)
             postMouse(.leftDown, at: point, clickState: state)
             postMouse(.leftUp, at: point, clickState: state)
-            if let saved = savedCursorPosition {
-                eventSink.warpCursor(to: saved)
-            }
         }
+        restoreCursorIfNeeded()
 
         if !dragging {
             lastTapTime = eventSink.now()
             lastTapPoint = downPoint
+        }
+    }
+
+    /// Restores the cursor position saved before the touch. Deferred by one
+    /// main-queue turn: an app that queries the *current* cursor position
+    /// while handling the just-posted click should still see the touch
+    /// position.
+    private func restoreCursorIfNeeded() {
+        guard configuration.restoreCursorAfterTouch,
+              injectionEnabled, targetBounds != nil,
+              let saved = savedCursorPosition else { return }
+        savedCursorPosition = nil
+        eventSink.schedule(after: 0) { [weak self] in
+            guard let self else { return }
+            self.eventSink.warpCursor(to: saved)
+            // A warp does not generate mouseMoved; hover/tracking state
+            // would otherwise stay stuck on the Edge.
+            self.eventSink.post(SynthesizedMouseEvent(kind: .moved, point: saved, clickState: 0))
         }
     }
 
