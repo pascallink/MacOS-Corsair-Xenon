@@ -79,6 +79,9 @@ public struct AppConfig: Codable, Equatable {
 
     // DDC
     public var ddcDisplayIndex = 0
+    /// Picks the DDC target via the display's identity (the Edge) instead of
+    /// the service index. `ddcDisplayIndex` only applies when this is off.
+    public var ddcSelectEdgeByIdentity = true
 
     // Launcher buttons
     public var launcherItems: [LauncherItem] = [
@@ -124,6 +127,7 @@ public struct AppConfig: Codable, Equatable {
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
         ddcDisplayIndex = try c.decodeIfPresent(Int.self, forKey: .ddcDisplayIndex) ?? d.ddcDisplayIndex
+        ddcSelectEdgeByIdentity = try c.decodeIfPresent(Bool.self, forKey: .ddcSelectEdgeByIdentity) ?? d.ddcSelectEdgeByIdentity
         launcherItems = try c.decodeIfPresent([LauncherItem].self, forKey: .launcherItems) ?? d.launcherItems
     }
 

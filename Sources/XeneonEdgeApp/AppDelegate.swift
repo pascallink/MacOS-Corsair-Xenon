@@ -300,10 +300,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
 
     @objc private func setBrightness(_ sender: NSMenuItem) {
         let percent = sender.tag
+        let byIdentity = configStore.config.ddcSelectEdgeByIdentity
         let index = configStore.config.ddcDisplayIndex
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let ddc = try DDCControl.openExternalDisplay(index: index)
+                let ddc = byIdentity ? try DDCControl.openEdge()
+                                     : try DDCControl.openExternalDisplay(index: index)
                 try ddc.setBrightness(percent: percent)
             } catch {
                 DispatchQueue.main.async {

@@ -129,18 +129,20 @@ import Testing
         #expect(AppConfig().restoreCursorAfterTouch)
     }
 
-    /// Issue #10: existing config.json files predate this key — it must
-    /// fall back to the new default rather than resetting the whole file.
-    @Test func oldConfigWithoutRestoreCursorKeyGetsTheNewDefault() throws {
+    /// Issue #10: existing config.json files predate both keys — they must
+    /// fall back to the new defaults rather than resetting the whole file.
+    @Test func oldConfigWithoutNewKeysGetsTheNewDefaults() throws {
         let json = #"{"ddcDisplayIndex": 0}"#
         let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
         #expect(decoded.restoreCursorAfterTouch)
+        #expect(decoded.ddcSelectEdgeByIdentity)
         #expect(decoded.ddcDisplayIndex == 0)
     }
 
-    @Test func restoreCursorAfterTouchSurvivesARoundTrip() throws {
+    @Test func newKeysSurviveARoundTrip() throws {
         var config = AppConfig()
         config.restoreCursorAfterTouch = false
+        config.ddcSelectEdgeByIdentity = false
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
         #expect(decoded == config)

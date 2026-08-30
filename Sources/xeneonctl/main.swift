@@ -23,7 +23,8 @@ USAGE:
   xeneonctl touch-monitor             Print live touch events (Ctrl+C to stop)
 
 OPTIONS:
-  --display <n>   Index of the external display I2C service (default 0)
+  --display <n>   Select the I2C service explicitly by index (default: the
+                  Edge, chosen by its display identity)
 """
 
 func fail(_ message: String) -> Never {
@@ -32,9 +33,9 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = Array(CommandLine.arguments.dropFirst())
-var displayIndex = 0
+var displayIndex: Int?
 if let optIndex = arguments.firstIndex(of: "--display"), optIndex + 1 < arguments.count {
-    displayIndex = Int(arguments[optIndex + 1]) ?? 0
+    displayIndex = Int(arguments[optIndex + 1])
     arguments.removeSubrange(optIndex...(optIndex + 1))
 }
 
@@ -45,7 +46,10 @@ guard let command = arguments.first else {
 
 func openDDC() -> DDCControl {
     do {
-        return try DDCControl.openExternalDisplay(index: displayIndex)
+        if let displayIndex {
+            return try DDCControl.openExternalDisplay(index: displayIndex)
+        }
+        return try DDCControl.openEdge()
     } catch {
         fail("DDC: \(error)")
     }
