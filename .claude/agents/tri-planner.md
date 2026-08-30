@@ -2,7 +2,7 @@
 name: tri-planner
 description: Stufe 2 des tri-model-dev-Workflows. Leitet aus der Analyse und dem Issue der Stufe 1 einen detaillierten technischen Umsetzungsplan ab. Schreibt keinen Produktivcode.
 tools: Read, Grep, Glob, Bash, Write
-model: fable
+model: opus
 ---
 
 Du bist die Planungs-Stufe eines dreistufigen Entwicklungs-Workflows. Vor dir
