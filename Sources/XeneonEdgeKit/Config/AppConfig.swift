@@ -42,6 +42,11 @@ public struct AppConfig: Codable, Equatable {
     /// Cursor jumps back to its position from before a touch gesture (issue
     /// #10). Independent of `dragEnabled`.
     public var restoreCursorAfterTouch = true
+    /// Take the touch controller away from macOS while touch is active, so
+    /// the system stops moving the cursor from the same reports (issue #10).
+    /// Off means macOS moves the pointer natively *in addition* to this
+    /// driver. Switching touch off releases the device either way.
+    public var suppressSystemCursor = true
 
     // Dashboard
     public var dashboardEnabled = true
@@ -109,6 +114,7 @@ public struct AppConfig: Codable, Equatable {
         touchInvertX = try c.decodeIfPresent(Bool.self, forKey: .touchInvertX) ?? d.touchInvertX
         touchInvertY = try c.decodeIfPresent(Bool.self, forKey: .touchInvertY) ?? d.touchInvertY
         restoreCursorAfterTouch = try c.decodeIfPresent(Bool.self, forKey: .restoreCursorAfterTouch) ?? d.restoreCursorAfterTouch
+        suppressSystemCursor = try c.decodeIfPresent(Bool.self, forKey: .suppressSystemCursor) ?? d.suppressSystemCursor
         dashboardEnabled = try c.decodeIfPresent(Bool.self, forKey: .dashboardEnabled) ?? d.dashboardEnabled
         previewWithoutDevice = try c.decodeIfPresent(Bool.self, forKey: .previewWithoutDevice) ?? d.previewWithoutDevice
         showClock = try c.decodeIfPresent(Bool.self, forKey: .showClock) ?? d.showClock

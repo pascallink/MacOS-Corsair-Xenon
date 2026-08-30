@@ -77,9 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         volumeModel.start()
         applyWidgetServices()
 
-        applyTouchConfiguration()
         touchDriver.delegate = self
-        touchDriver.start()
+        // Starts the driver when touch is enabled — and only then, because
+        // a seized interface stays away from macOS until it is released.
+        applyTouchConfiguration()
 
         refreshDisplays()
         setupStatusItem()
@@ -158,7 +159,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         tc.invertX = c.touchInvertX
         tc.invertY = c.touchInvertY
         tc.restoreCursorAfterTouch = c.restoreCursorAfterTouch
+        tc.suppressSystemCursor = c.suppressSystemCursor
         touchDriver.configuration = tc
+        // Switching touch off has to hand the controller back to macOS.
+        // Merely ignoring the reports would leave the interface seized and
+        // the panel dead instead of natively controlled.
+        guard c.touchEnabled else {
+            touchDriver.stop()
+            return
+        }
+        // The seize is decided when the HID manager is opened, so a changed
+        // setting only takes effect after a reconnect. A refused seize also
+        // lands here and gets retried on the next configuration change,
+        // which is the wanted behaviour.
+        if touchDriver.isRunning, touchDriver.systemCursorSuppressed != tc.suppressSystemCursor {
+            touchDriver.stop()
+        }
+        touchDriver.start()
     }
 
     // MARK: TouchDriverDelegate

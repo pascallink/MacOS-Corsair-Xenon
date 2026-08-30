@@ -34,14 +34,31 @@ public enum EdgeConstants {
     public static let touchDefaultMaxX: Int = 16383
     /// Default logical maximum of the Y axis reported by the digitizer.
     public static let touchDefaultMaxY: Int = 9599
-    /// Usage page / usage of the touch controller's digitizer interface.
-    /// Under the same VID/PID it additionally reports a mouse-emulation
-    /// interface (0x01/0x02) and a vendor channel (0xFF0A/0xFF); matching on
+    /// Usage page / usage of the touch controller's digitizer interface
+    /// (report id 0x0D). Under the same VID/PID the controller additionally
+    /// reports a mouse-emulation interface and a vendor channel; matching on
     /// VID/PID alone opens all three.
     public static let digitizerUsagePage: Int = 0x0D
     public static let digitizerUsage: Int = 0x04
+    /// Mouse-emulation interface of the same controller (report id 0x07):
+    /// absolute X/Y over the same logical range as the digitizer, contact as
+    /// Button 1. The Edge powers up in mouse mode, so this is the interface
+    /// that actually delivers contacts — see `digitizerDeviceModeUsage`.
+    public static let touchMouseUsagePage: Int = 0x01
+    public static let touchMouseUsage: Int = 0x02
+    /// Vendor channel of the touch controller (wch.cn); never opened.
+    public static let touchVendorChannelUsagePage: Int = 0xFF0A
+    public static let touchVendorChannelUsage: Int = 0xFF
     /// Finger collection inside the digitizer.
     public static let digitizerFingerUsage: Int = 0x22
+    /// Device Configuration collection of the digitizer and its `Device Mode`
+    /// feature (report id 0x21). The value selects how the controller
+    /// reports: `digitizerDeviceModeMouse` (0) = mouse emulation, the
+    /// digitizer interface then stays silent. Switching it is a HID *write*
+    /// and deliberately not implemented here.
+    public static let digitizerDeviceConfigUsage: Int = 0x0E
+    public static let digitizerDeviceModeUsage: Int = 0x52
+    public static let digitizerDeviceModeMouse: Int = 0
     /// Number of contact slots declared by the Edge's report descriptor.
     public static let touchContactSlots: Int = 10
 

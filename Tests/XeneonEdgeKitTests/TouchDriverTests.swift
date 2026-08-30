@@ -67,8 +67,17 @@ final class RecordingTouchDelegate: TouchDriverDelegate {
         return (driver, sink)
     }
 
+    /// Digitizer Tip Switch — the contact source that only reports once the
+    /// controller leaves mouse mode.
     private func tip(_ down: Bool, slot: Int? = nil) -> TouchSample {
-        TouchSample(usagePage: 0x0D, usage: 0x42, value: down ? 1 : 0, slot: slot)
+        TouchSample(usagePage: 0x0D, usage: 0x42, value: down ? 1 : 0, slot: slot,
+                    interface: .digitizer)
+    }
+    /// Button 1 on the mouse emulation — the contact source the Edge
+    /// actually uses in its power-on mode.
+    private func button1(_ down: Bool) -> TouchSample {
+        TouchSample(usagePage: 0x09, usage: 0x01, value: down ? 1 : 0,
+                    interface: .mouseEmulation)
     }
     private func x(_ value: Int, logicalMax: Int = 16383, slot: Int? = nil) -> TouchSample {
         TouchSample(usagePage: 0x01, usage: 0x30, value: value, logicalMax: logicalMax, slot: slot)
@@ -199,11 +208,50 @@ final class RecordingTouchDelegate: TouchDriverDelegate {
         #expect(sink.events.map(\.kind) == [.leftDown, .leftUp])
     }
 
-    @Test func buttonOneNoLongerStartsAContact() {
+    // MARK: Mouse emulation — the interface the Edge reports on today
+
+    @Test func buttonOneOnTheMouseEmulationDrivesAGesture() {
+        // The Edge powers up with Device Mode = 0; contacts then arrive as
+        // Button 1 on 0x01/0x02, not as a Tip Switch. Dropping this branch
+        // (and the interface with it) killed touch entirely.
         let (driver, sink) = makeDriver()
-        let button1 = TouchSample(usagePage: 0x09, usage: 0x01, value: 1)
-        driver.handle(sample: button1)
-        #expect(sink.events.isEmpty)
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        driver.handle(sample: button1(true))
+        driver.handle(sample: button1(false))
+        #expect(sink.events.map(\.kind) == [.leftDown, .leftUp])
+    }
+
+    @Test func mouseEmulationSamplesCarryNoSlotAndAreNotFiltered() {
+        // The mouse emulation has a single contact and no finger
+        // collections, so its samples have slot == nil and must pass the
+        // slot-0 filter untouched.
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(8000))
+        driver.handle(sample: y(4000))
+        driver.handle(sample: button1(true))
+        driver.handle(sample: x(12000))
+        #expect(sink.events.contains { $0.kind == .leftDragged })
+    }
+
+    @Test func diagnosticsReportTheSourceInterface() {
+        let (driver, sink) = makeDriver()
+        let observer = RecordingTouchDelegate()
+        driver.delegate = observer
+        _ = sink
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        driver.handle(sample: button1(true))
+        driver.handle(sample: button1(false))
+        #expect(observer.diagnostics.map(\.interface) == [.mouseEmulation, .mouseEmulation])
+
+        let (digitizerDriver, _) = makeDriver()
+        let digitizerObserver = RecordingTouchDelegate()
+        digitizerDriver.delegate = digitizerObserver
+        digitizerDriver.handle(sample: x(1000, slot: 0))
+        digitizerDriver.handle(sample: y(1000, slot: 0))
+        digitizerDriver.handle(sample: tip(true, slot: 0))
+        #expect(digitizerObserver.diagnostics.map(\.interface) == [.digitizer])
     }
 
     @Test func unusedSlotZeroesDoNotDragTheCursor() {
