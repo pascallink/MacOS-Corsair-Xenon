@@ -150,4 +150,60 @@ final class RecordingTouchSink: TouchEventSink {
         driver.handle(sample: tip(false))
         #expect(sink.events.isEmpty)
     }
+
+    // MARK: Step 3 — only the digitizer interface, only contact slot 0
+
+    @Test func samplesFromSlotOneAreIgnored() {
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(1000, slot: 0))
+        driver.handle(sample: y(1000, slot: 0))
+        driver.handle(sample: tip(true, slot: 0))
+        driver.handle(sample: x(9999, slot: 1))
+        driver.handle(sample: y(9999, slot: 1))
+        driver.handle(sample: tip(true, slot: 1))
+        #expect(sink.events.map(\.kind) == [.leftDown])
+        driver.handle(sample: tip(false, slot: 1)) // must not end slot 0's contact
+        #expect(sink.events.map(\.kind) == [.leftDown])
+        driver.handle(sample: tip(false, slot: 0))
+        #expect(sink.events.map(\.kind) == [.leftDown, .leftUp])
+    }
+
+    @Test func slotZeroDrivesTheCursor() {
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(1000, slot: 0))
+        driver.handle(sample: y(1000, slot: 0))
+        driver.handle(sample: tip(true, slot: 0))
+        driver.handle(sample: tip(false, slot: 0))
+        #expect(sink.events.map(\.kind) == [.leftDown, .leftUp])
+    }
+
+    @Test func samplesWithoutSlotAreStillProcessed() {
+        // Fallback for an unexpected descriptor: slot indexing found nothing,
+        // sample.slot stays nil, so everything is processed as before.
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(1000))
+        driver.handle(sample: y(1000))
+        driver.handle(sample: tip(true))
+        driver.handle(sample: tip(false))
+        #expect(sink.events.map(\.kind) == [.leftDown, .leftUp])
+    }
+
+    @Test func buttonOneNoLongerStartsAContact() {
+        let (driver, sink) = makeDriver()
+        let button1 = TouchSample(usagePage: 0x09, usage: 0x01, value: 1)
+        driver.handle(sample: button1)
+        #expect(sink.events.isEmpty)
+    }
+
+    @Test func unusedSlotZeroesDoNotDragTheCursor() {
+        // This was the actual bug: an idle slot reporting (0,0) while slot 0
+        // is down used to yank the cursor into the panel corner.
+        let (driver, sink) = makeDriver()
+        driver.handle(sample: x(8000, slot: 0))
+        driver.handle(sample: y(4000, slot: 0))
+        driver.handle(sample: tip(true, slot: 0))
+        driver.handle(sample: x(0, slot: 3))
+        driver.handle(sample: y(0, slot: 3))
+        #expect(!sink.events.contains { $0.kind == .leftDragged })
+    }
 }

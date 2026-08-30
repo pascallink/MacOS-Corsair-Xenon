@@ -34,6 +34,16 @@ public enum EdgeConstants {
     public static let touchDefaultMaxX: Int = 16383
     /// Default logical maximum of the Y axis reported by the digitizer.
     public static let touchDefaultMaxY: Int = 9599
+    /// Usage page / usage of the touch controller's digitizer interface.
+    /// Under the same VID/PID it additionally reports a mouse-emulation
+    /// interface (0x01/0x02) and a vendor channel (0xFF0A/0xFF); matching on
+    /// VID/PID alone opens all three.
+    public static let digitizerUsagePage: Int = 0x0D
+    public static let digitizerUsage: Int = 0x04
+    /// Finger collection inside the digitizer.
+    public static let digitizerFingerUsage: Int = 0x22
+    /// Number of contact slots declared by the Edge's report descriptor.
+    public static let touchContactSlots: Int = 10
 
     // MARK: Panel
 
