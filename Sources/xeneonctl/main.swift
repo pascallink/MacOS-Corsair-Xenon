@@ -77,8 +77,12 @@ case "firmware":
     }
     do {
         try device.open()
-        let data = try device.probeFirmware()
-        print("GET 0x13 response: \(BragiFrame.hexDump(Array(data.prefix(32))))")
+        let frame = BragiFrame.get(property: BragiProperty.firmware)
+        let raw = try device.transfer(frame)
+        print("GET 0x13 raw : \(BragiFrame.hexDump(Array(raw.prefix(32))))")
+        if let data = BragiFrame.responseData(request: frame, response: raw) {
+            print("GET 0x13 data: \(BragiFrame.hexDump(Array(data.prefix(30))))")
+        }
         device.close()
     } catch {
         fail("\(error)")
