@@ -195,6 +195,10 @@ case "ddc":
     }
 
 case "touch-monitor":
+    // Line buffering: redirected into a file or a pipe, stdout would
+    // otherwise be block buffered and the live monitor would look hung for
+    // minutes ("xeneonctl touch-monitor > log.txt").
+    setvbuf(stdout, nil, _IOLBF, 0)
     guard TouchDriver.hasInputMonitoringPermission() else {
         fail("""
         Input Monitoring is missing — without this permission no touch events \

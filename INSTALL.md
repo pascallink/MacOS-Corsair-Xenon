@@ -126,6 +126,8 @@ Access    : Accessibility granted, Input Monitoring granted
 - **Touch testen ohne Klicks auszulösen**: `xeneonctl touch-monitor`
   (reine Diagnose, es werden keine Mausereignisse erzeugt; gibt Interface,
   Kontaktslot, Rohwerte und normalisierte Koordinaten je Ereignis aus).
+  Die Ausgabe ist zeilengepuffert, `xeneonctl touch-monitor > log.txt`
+  funktioniert also live mit `tail -f`.
 - **Achsen**: Am hier geprüften Gerät ist **keine** Korrektur nötig —
   `touchRotation = 0`, `touchInvertX = false`, `touchInvertY = false`
   (die Standardwerte). Oben links auf dem Panel ergibt `(1373, 2586)`,
