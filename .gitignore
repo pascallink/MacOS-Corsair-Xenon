@@ -3,3 +3,4 @@ dist/
 *.xcodeproj
 .DS_Store
 .swiftpm/
+.tri-model-dev/
