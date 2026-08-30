@@ -93,20 +93,38 @@ alten Eintrag entfernen (−) und neu erteilen.
 xeneonctl probe
 ```
 
-Erwartete Ausgabe, wenn alles verbunden ist:
+Erwartete Ausgabe, wenn alles verbunden ist (Beispiel von einem Testsystem
+mit drei externen Displays, eines davon der Edge):
 
 ```
 == CORSAIR XENEON EDGE — probe ==
-Display   : XENEON EDGE (id 3)
-Bounds    : 2560x720 at (1512, 0)
-Vendor HID: XENEON EDGE / CORSAIR / SN 63432…
-DDC       : 1 external display I2C service(s)
+Display   : XENEON EDGE (id 1)
+Bounds    : 2560x720 at (1280, 2560)
+Vendor HID: XENEON EDGE / CORSAIR / SN 320225465656
+Touch HID : 0x0D/0x04 digitizer (66 elements) <- driver
+            0x01/0x02 mouse emulation (12 elements)
+            0xFF0A/0xFF vendor channel (9 elements)
+DDC       : 4 external display I2C service(s)
+            [0] dispextE  — (no framebuffer, unusable)
+            [1] dispext2  XENEON EDGE <- Edge
+            [2] dispext0  BenQ RD280UA
+            [3] dispext1  BenQ RD280UA
+Access    : Accessibility granted, Input Monitoring granted
 ```
 
 - **Display fehlt** → Bildkabel/Modus prüfen (USB-C muss DP-Alt-Mode können).
 - **Vendor HID fehlt** → USB-Datenkabel prüfen.
+- **Ein DDC-Service ohne Framebuffer** (wie `dispextE` oben) ist ein toter
+  I2C-Service, wie er auf manchen Systemen unter Index 0 liegt — die App
+  wählt den Edge seit Issue #10 über seine Display-Identität, nicht mehr
+  über diesen Index; `--display <n>` bleibt als manuelle Übersteuerung.
 - **Touch testen ohne Klicks auszulösen**: `xeneonctl touch-monitor`
-  (reine Diagnose, es werden keine Mausereignisse erzeugt).
+  (reine Diagnose, es werden keine Mausereignisse erzeugt; gibt Interface,
+  Kontaktslot, Rohwerte und normalisierte Koordinaten je Ereignis aus).
+- **Cursor-Rücksprung**: Nach jeder abgeschlossenen Touch-Geste springt der
+  Mauszeiger an seine vorherige Position zurück. Abschaltbar über
+  `restoreCursorAfterTouch: false` in `config.json`
+  („Konfigurationsdatei öffnen …“ im Menü, danach „Konfiguration neu laden“).
 
 Danach `XeneonEdge.app` starten: Das Dashboard legt sich als Vollbild auf das
 Edge; über das Menüleistensymbol lassen sich Touch, Dashboard und Helligkeit
@@ -255,9 +273,10 @@ gespeichert.
 
 | Symptom | Ursache / Lösung |
 |---|---|
-| Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen |
-| Klicks an falscher Stelle | Edge in den macOS-Displayeinstellungen gedreht montiert? `touchRotation` (90/180/270) bzw. `touchInvertX/Y` in `config.json` setzen |
-| Helligkeit schlägt fehl | Intel-Mac (noch nicht unterstützt) oder Dock/Adapter leitet DDC nicht durch → Edge direkt anschließen |
+| Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen (bricht mit einem Hinweis ab, wenn Eingabemonitoring fehlt) |
+| Klicks an falscher Stelle | Edge in den macOS-Displayeinstellungen gedreht montiert? `touchRotation` (90/180/270) bzw. `touchInvertX/Y` in `config.json` setzen — `xeneonctl touch-monitor` zeigt dafür Rohwerte und normalisierte Koordinaten je Ereignis |
+| Cursor bleibt nach dem Tippen auf dem Edge stehen | `restoreCursorAfterTouch` in `config.json` auf `true`? (Default an; greift für Tap, Doppeltap, Langdruck-Rechtsklick und Drag-Ende gleichermaßen) |
+| Helligkeit schlägt fehl (`xeneonctl brightness`) | Seit Issue #10 wird der Edge über seine Display-Identität ausgewählt (`--display <n>` ist nur noch die manuelle Übersteuerung). Bleibt es dabei: Intel-Mac (noch nicht unterstützt) oder Dock/Adapter leitet DDC nicht durch → Edge direkt anschließen. `xeneonctl probe` listet die I2C-Services mit Displaynamen |
 | Dashboard auf falschem Display | Displaynamen prüfen: App sucht „XENEON“, dann 32:9-Seitenverhältnis; ggf. Issue melden |
 | App startet nach Neubau nicht mehr / fragt erneut nach Rechten | Ad-hoc-Signatur hat sich geändert → alte Einträge in Datenschutz & Sicherheit entfernen, neu erteilen |
 | **Änderungen in `config.json` oder im Widgets-Menü bleiben nicht erhalten** | Meist ein **JSON-Syntaxfehler** in der Datei — z. B. eine führende Null bei einer Zahl (`08.37` statt `8.37`, in JSON nicht erlaubt), ein fehlendes Komma oder ein Kommentar. Die Datei lässt sich dann gar nicht mehr einlesen, die App läuft nur noch mit Standardwerten im Speicher. Prüfen: `python3 -m json.tool ~/Library/Application\ Support/XeneonEdge/config.json` (Fehlermeldung nennt Zeile/Spalte) — Fehler beheben, dann „Konfiguration neu laden“. Zweite Ursache: **zwei Instanzen gleichzeitig** (z. B. LaunchAgent-Autostart *und* manuell aus dem Finder geöffnet) — beide schreiben dieselbe Datei unabhängig voneinander. Ab dieser Version beendet sich eine zweite Instanz automatisch beim Start; bei einer älteren Version beide Instanzen beenden und die App einmal neu öffnen |
