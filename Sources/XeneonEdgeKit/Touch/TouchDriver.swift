@@ -23,8 +23,7 @@ import Foundation
 import IOKit.hid
 
 public struct TouchDriverConfiguration {
-    /// Emit drags (down/drag/up). When false, only taps are emitted and the
-    /// cursor jumps back to where it was before the tap.
+    /// Emit drags (down/drag/up). When false, only taps are emitted.
     public var dragEnabled = true
     /// Long press emits a right click.
     public var longPressRightClick = true
@@ -59,10 +58,17 @@ public final class TouchDriver {
     /// When false, touches are tracked and reported to the delegate but no
     /// mouse events are synthesized (diagnostics mode).
     public var injectionEnabled = true
+    /// Target of the event output. Swappable for tests.
+    public var eventSink: TouchEventSink = CGEventTouchSink()
+    /// Overrides `display` for tests and diagnostics: touches map onto this
+    /// rectangle. nil = use `display`.
+    public var targetBoundsOverride: CGRect?
 
     public private(set) var deviceConnected = false
 
     private var manager: IOHIDManager?
+
+    private var targetBounds: CGRect? { targetBoundsOverride ?? display?.bounds }
 
     // Raw axis state
     private var rawX = 0
@@ -138,27 +144,34 @@ public final class TouchDriver {
 
     // MARK: HID input
 
+    /// Thin decoder: turns a raw IOHIDValue into a `TouchSample` and hands it
+    /// to the (testable) state machine.
     private func handle(value: IOHIDValue) {
         guard enabled else { return }
         let element = IOHIDValueGetElement(value)
-        let usagePage = IOHIDElementGetUsagePage(element)
-        let usage = IOHIDElementGetUsage(element)
-        let intValue = IOHIDValueGetIntegerValue(value)
+        let sample = TouchSample(usagePage: IOHIDElementGetUsagePage(element),
+                                 usage: IOHIDElementGetUsage(element),
+                                 value: IOHIDValueGetIntegerValue(value),
+                                 logicalMax: IOHIDElementGetLogicalMax(element),
+                                 slot: nil)
+        handle(sample: sample)
+    }
 
-        switch (usagePage, usage) {
+    /// The actual state machine input, decoupled from IOKit so it can be fed
+    /// directly by tests.
+    func handle(sample: TouchSample) {
+        switch (sample.usagePage, sample.usage) {
         case (0x01, 0x30): // Generic Desktop / X
-            rawX = intValue
-            let logicalMax = IOHIDElementGetLogicalMax(element)
-            if logicalMax > 0 { maxX = logicalMax }
+            rawX = sample.value
+            if sample.logicalMax > 0 { maxX = sample.logicalMax }
             if touching { contactMoved() }
         case (0x01, 0x31): // Generic Desktop / Y
-            rawY = intValue
-            let logicalMax = IOHIDElementGetLogicalMax(element)
-            if logicalMax > 0 { maxY = logicalMax }
+            rawY = sample.value
+            if sample.logicalMax > 0 { maxY = sample.logicalMax }
             if touching { contactMoved() }
         case (0x09, 0x01), // Button 1 (Xeneon Edge touch controller)
              (0x0D, 0x42): // Digitizer / Tip Switch (standard)
-            if intValue != 0 { contactDown() } else { contactUp() }
+            if sample.value != 0 { contactDown() } else { contactUp() }
         default:
             break
         }
@@ -172,13 +185,13 @@ public final class TouchDriver {
                                         invertX: configuration.invertX,
                                         invertY: configuration.invertY)
 
-        guard let display else {
+        guard let bounds = targetBounds else {
             // No Edge display located: report panel-native coordinates so
             // diagnostics still work; injection stays off in that case.
             return CGPoint(x: n.x * EdgeConstants.nativeWidth,
                            y: n.y * EdgeConstants.nativeHeight)
         }
-        return display.globalPoint(normalizedX: n.x, normalizedY: n.y)
+        return EdgeDisplay.globalPoint(normalizedX: n.x, normalizedY: n.y, in: bounds)
     }
 
     // MARK: Contact state machine
@@ -189,18 +202,17 @@ public final class TouchDriver {
         dragging = false
         longPressFired = false
         downPoint = point
-        downTime = Date()
+        downTime = eventSink.now()
         lastPoint = point
-        savedCursorPosition = configuration.dragEnabled ? nil : CGEvent(source: nil)?.location
+        savedCursorPosition = configuration.dragEnabled ? nil : eventSink.cursorLocation()
 
         delegate?.touchDriver(self, didTouchAt: point, down: true)
 
         if configuration.dragEnabled {
-            postMouse(.leftMouseDown, at: point, clickState: clickState(for: point))
+            postMouse(.leftDown, at: point, clickState: clickState(for: point))
         }
         if configuration.longPressRightClick {
-            let deadline = DispatchTime.now() + configuration.longPressSeconds
-            DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+            eventSink.schedule(after: configuration.longPressSeconds) { [weak self] in
                 self?.longPressCheck()
             }
         }
@@ -212,7 +224,7 @@ public final class TouchDriver {
         if configuration.dragEnabled {
             if dragging || distance(point, downPoint) > configuration.tapSlop {
                 dragging = true
-                postMouse(.leftMouseDragged, at: point, clickState: 1)
+                postMouse(.leftDragged, at: point, clickState: 1)
             }
         }
     }
@@ -228,38 +240,38 @@ public final class TouchDriver {
         }
 
         if configuration.dragEnabled {
-            postMouse(.leftMouseUp, at: point, clickState: clickState(for: downPoint))
+            postMouse(.leftUp, at: point, clickState: clickState(for: downPoint))
         } else {
             // Tap-only mode: click, then restore the cursor.
             let state = clickState(for: downPoint)
-            postMouse(.leftMouseDown, at: point, clickState: state)
-            postMouse(.leftMouseUp, at: point, clickState: state)
+            postMouse(.leftDown, at: point, clickState: state)
+            postMouse(.leftUp, at: point, clickState: state)
             if let saved = savedCursorPosition {
-                CGWarpMouseCursorPosition(saved)
+                eventSink.warpCursor(to: saved)
             }
         }
 
         if !dragging {
-            lastTapTime = Date()
+            lastTapTime = eventSink.now()
             lastTapPoint = downPoint
         }
     }
 
     private func longPressCheck() {
         guard touching, !dragging, !longPressFired else { return }
-        guard Date().timeIntervalSince(downTime) >= configuration.longPressSeconds - 0.01 else { return }
+        guard eventSink.now().timeIntervalSince(downTime) >= configuration.longPressSeconds - 0.01 else { return }
         guard distance(lastPoint, downPoint) <= configuration.tapSlop else { return }
         longPressFired = true
         if configuration.dragEnabled {
             // Cancel the pending left click before the right click.
-            postMouse(.leftMouseUp, at: downPoint, clickState: 0)
+            postMouse(.leftUp, at: downPoint, clickState: 0)
         }
-        postMouse(.rightMouseDown, at: downPoint, clickState: 1, button: .right)
-        postMouse(.rightMouseUp, at: downPoint, clickState: 1, button: .right)
+        postMouse(.rightDown, at: downPoint, clickState: 1)
+        postMouse(.rightUp, at: downPoint, clickState: 1)
     }
 
     private func clickState(for point: CGPoint) -> Int64 {
-        let isDouble = Date().timeIntervalSince(lastTapTime) < configuration.doubleTapSeconds
+        let isDouble = eventSink.now().timeIntervalSince(lastTapTime) < configuration.doubleTapSeconds
             && distance(point, lastTapPoint) <= configuration.tapSlop * 2
         return isDouble ? 2 : 1
     }
@@ -270,14 +282,9 @@ public final class TouchDriver {
 
     // MARK: Event injection
 
-    private func postMouse(_ type: CGEventType, at point: CGPoint,
-                           clickState: Int64, button: CGMouseButton = .left) {
-        guard injectionEnabled, display != nil else { return }
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: type,
-                                  mouseCursorPosition: point, mouseButton: button) else { return }
-        if clickState > 0 {
-            event.setIntegerValueField(.mouseEventClickState, value: clickState)
-        }
-        event.post(tap: .cghidEventTap)
+    private func postMouse(_ kind: SynthesizedMouseEvent.Kind,
+                           at point: CGPoint, clickState: Int64) {
+        guard injectionEnabled, targetBounds != nil else { return }
+        eventSink.post(SynthesizedMouseEvent(kind: kind, point: point, clickState: clickState))
     }
 }
