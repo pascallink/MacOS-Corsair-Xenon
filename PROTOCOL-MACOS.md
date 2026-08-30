@@ -88,7 +88,15 @@ Der Treiber öffnet die Interfaces deshalb mit
 `kIOHIDOptionsTypeSeizeDevice` (`suppressSystemCursor`, Default an): Das
 Gerät gehört dann exklusiv diesem Prozess, macOS bekommt keine Reports mehr
 und erzeugt keine Pointer-Events. **Kein HID-Write** — der Gerätezustand
-bleibt unangetastet. Randbedingungen:
+bleibt unangetastet.
+
+**Am angeschlossenen Edge verifiziert** (Issue #10): Mit dem Seize bleibt
+die native Zeigerbewegung aus, jede Berührung wirkt genau einmal — der
+Klick auf dem Edge, danach der Rücksprung des Cursors. Ohne den Seize lief
+der Zeiger zusätzlich auf dem Hauptmonitor mit, auch bei abgeschalteter
+Touch-Eingabe der App.
+
+Randbedingungen:
 
 - Solange der Seize hält, erreicht Touch das System **nur** über diesen
   Treiber. Wird die Touch-Eingabe abgeschaltet, gibt der Treiber das Gerät

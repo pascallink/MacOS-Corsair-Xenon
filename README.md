@@ -126,7 +126,9 @@ Am angeschlossenen XENEON EDGE (Apple M1 Max) verifiziert (Issue #10):
       Maus-Emulation einen eigenen `AppleUserHIDEventDriver` und bewegt den
       Zeiger aus denselben Reports mit. Der Treiber öffnet die Interfaces
       deshalb exklusiv (`suppressSystemCursor`, Default an) — ein Seize,
-      kein HID-Write
+      kein HID-Write. Am Gerät gegengeprüft: mit Seize wirkt eine
+      Berührung genau einmal, ohne ihn lief der Zeiger zusätzlich auf dem
+      Hauptmonitor mit
 
 Weiterhin offen (siehe #4):
 
