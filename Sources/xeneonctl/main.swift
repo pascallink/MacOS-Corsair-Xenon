@@ -20,11 +20,15 @@ USAGE:
   xeneonctl power <on|standby>        Panel power via DDC/CI
   xeneonctl ddc get <vcp-hex>         Read a raw VCP feature (e.g. 0x10)
   xeneonctl ddc set <vcp-hex> <value> Write a raw VCP feature
-  xeneonctl touch-monitor             Print live touch events (Ctrl+C to stop)
+  xeneonctl touch-monitor [--seize]   Print live touch events (Ctrl+C to stop)
 
 OPTIONS:
   --display <n>   Select the I2C service explicitly by index (default: the
                   Edge, chosen by its display identity)
+  --seize         touch-monitor only: take the touch interfaces away from
+                  macOS for the duration of the run, so the system stops
+                  moving the cursor from the same reports. Off by default —
+                  plain diagnostics must not change how the device behaves.
 """
 
 func fail(_ message: String) -> Never {
@@ -33,6 +37,11 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = Array(CommandLine.arguments.dropFirst())
+var seizeTouch = false
+if let optIndex = arguments.firstIndex(of: "--seize") {
+    seizeTouch = true
+    arguments.remove(at: optIndex)
+}
 var displayIndex: Int?
 if let optIndex = arguments.firstIndex(of: "--display"), optIndex + 1 < arguments.count {
     displayIndex = Int(arguments[optIndex + 1])
@@ -236,8 +245,10 @@ case "touch-monitor":
     let monitor = Monitor()
     driver.delegate = monitor
     driver.display = EdgeDisplay.find()
-    // Diagnostics only: never inject events from the CLI.
+    // Diagnostics only: never inject events from the CLI, and leave the
+    // device to macOS unless --seize was asked for explicitly.
     driver.injectionEnabled = false
+    driver.configuration.suppressSystemCursor = seizeTouch
     if let display = driver.display {
         let b = display.bounds
         print("bounds: \(Int(b.width))x\(Int(b.height)) at (\(Int(b.minX)), \(Int(b.minY))) " +
@@ -247,6 +258,11 @@ case "touch-monitor":
     }
     print("monitoring touches — Ctrl+C to stop")
     driver.start(runLoop: CFRunLoopGetCurrent())
+    if seizeTouch {
+        print(driver.systemCursorSuppressed
+              ? "seized: macOS gets no pointer events from the touch controller while this runs"
+              : "seize refused — macOS keeps moving the cursor from the same reports")
+    }
     CFRunLoopRun()
 
 case "help", "--help", "-h":

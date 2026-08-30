@@ -63,6 +63,44 @@ Eingabe-Interfaces. Die Maus-Emulation trägt die Kontakte
 inklusive Kontaktslot-Bindung bleibt bestehen und greift, sobald der Modus
 umgeschaltet ist. Der Hersteller-Kanal bleibt zu.
 
+### macOS bedient die Maus-Emulation selbst — Gegenmaßnahme: Seize
+
+Weil die Maus-Emulation eine gewöhnliche Generic-Desktop-/Mouse-Collection
+ist, hängt macOS dort seinen **eigenen** Event-Treiber an und erzeugt aus
+denselben Reports System-Pointer-Events. Am Gerät in der IORegistry
+nachgesehen:
+
+```
+TouchScreen@03140000 (27c0:0859)
+├─ IOUSBHostInterface@0 → 0x0D/0x04  Digitizer        → AppleUserHIDEventDriver (stumm)
+├─ IOUSBHostInterface@1 → 0xFF0A/0xFF Hersteller-Kanal → kein Event-Treiber
+└─ IOUSBHostInterface@2 → 0x01/0x02  Maus-Emulation   → AppleUserHIDEventDriver  ← bewegt den Cursor
+```
+
+Folge ohne Gegenmaßnahme: Jede Berührung bewegt den Zeiger **zweimal** —
+einmal nativ durch macOS (dorthin, wohin es die absoluten Koordinaten
+abbildet, im Test der Hauptmonitor) und einmal durch diesen Treiber auf den
+Edge. Am Gerät gegengeprüft: Mit abgeschalteter Touch-Eingabe der App bleibt
+die native Bewegung unverändert bestehen, sie stammt also nicht aus der
+Injektion.
+
+Der Treiber öffnet die Interfaces deshalb mit
+`kIOHIDOptionsTypeSeizeDevice` (`suppressSystemCursor`, Default an): Das
+Gerät gehört dann exklusiv diesem Prozess, macOS bekommt keine Reports mehr
+und erzeugt keine Pointer-Events. **Kein HID-Write** — der Gerätezustand
+bleibt unangetastet. Randbedingungen:
+
+- Solange der Seize hält, erreicht Touch das System **nur** über diesen
+  Treiber. Wird die Touch-Eingabe abgeschaltet, gibt der Treiber das Gerät
+  wieder frei (`stop()`); beim Prozessende löst der Kernel den Seize
+  ohnehin auf.
+- Schlägt der Seize fehl, öffnet `start()` regulär weiter — lieber ein
+  doppelter Cursor als gar kein Touch. `systemCursorSuppressed` sagt, was
+  tatsächlich gilt.
+- `xeneonctl touch-monitor` seized **nicht**; reine Diagnose darf das
+  Geräteverhalten nicht verändern. Für den A/B-Test gibt es
+  `touch-monitor --seize`.
+
 **Den Modus umzuschalten wäre ein HID-Write** (Set Feature auf `0x0D/0x52`)
 an den Touch-Controller und ist in diesem Projekt bewusst **nicht**
 implementiert — das ist eine eigene Produktentscheidung mit eigenem Issue,

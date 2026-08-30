@@ -128,6 +128,11 @@ Access    : Accessibility granted, Input Monitoring granted
   Kontaktslot, Rohwerte und normalisierte Koordinaten je Ereignis aus).
   Die Ausgabe ist zeilengepuffert, `xeneonctl touch-monitor > log.txt`
   funktioniert also live mit `tail -f`.
+- **Doppelte Cursorbewegung**: macOS erzeugt aus dem Maus-Emulations-
+  Interface des Touch-Controllers eigene Zeigerbewegungen. Die App nimmt
+  ihm das Gerät deshalb exklusiv weg (`suppressSystemCursor`, Default an).
+  Solange die App läuft und Touch aktiv ist, geht Touch nur über sie;
+  „Touch-Eingabe aktiv" abschalten gibt das Gerät sofort an macOS zurück.
 - **Achsen**: Am hier geprüften Gerät ist **keine** Korrektur nötig —
   `touchRotation = 0`, `touchInvertX = false`, `touchInvertY = false`
   (die Standardwerte). Oben links auf dem Panel ergibt `(1373, 2586)`,
@@ -286,6 +291,8 @@ gespeichert.
 |---|---|
 | Touch bewirkt nichts | Bedienungshilfen + Eingabemonitoring erteilt? App danach neu gestartet? USB-Datenkabel dran? `xeneonctl touch-monitor` zeigt, ob Daten ankommen (bricht mit einem Hinweis ab, wenn Eingabemonitoring fehlt). Die Zeilen tragen mit `if=` das Interface: `mouse` ist der Normalfall, `digitizer` erschiene nur, wenn der Controller nicht mehr im Maus-Modus liefe |
 | Klicks an falscher Stelle | Edge in den macOS-Displayeinstellungen gedreht montiert? `touchRotation` (90/180/270) bzw. `touchInvertX/Y` in `config.json` setzen — `xeneonctl touch-monitor` zeigt dafür Rohwerte und normalisierte Koordinaten je Ereignis |
+| Zeiger springt bei jeder Berührung zusätzlich auf dem Hauptmonitor herum | macOS bedient die Maus-Emulation des Touch-Controllers selbst. `suppressSystemCursor` in `config.json` auf `true` (Default) — dann übernimmt die App das Gerät exklusiv. Gegenprobe ohne App: `xeneonctl touch-monitor --seize` |
+| Touch tut nichts, obwohl die App läuft | Läuft parallel ein `xeneonctl touch-monitor --seize`? Der hält das Gerät exklusiv und injiziert selbst nichts — beenden (Ctrl+C) |
 | Cursor bleibt nach dem Tippen auf dem Edge stehen | `restoreCursorAfterTouch` in `config.json` auf `true`? (Default an; greift für Tap, Doppeltap, Langdruck-Rechtsklick und Drag-Ende gleichermaßen) |
 | Helligkeit schlägt fehl (`xeneonctl brightness`) | Seit Issue #10 wird der Edge über seine Display-Identität ausgewählt (`--display <n>` ist nur noch die manuelle Übersteuerung). Bleibt es dabei: Intel-Mac (noch nicht unterstützt) oder Dock/Adapter leitet DDC nicht durch → Edge direkt anschließen. `xeneonctl probe` listet die I2C-Services mit Displaynamen |
 | Dashboard auf falschem Display | Displaynamen prüfen: App sucht „XENEON“, dann 32:9-Seitenverhältnis; ggf. Issue melden |

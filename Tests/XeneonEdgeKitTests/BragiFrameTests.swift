@@ -129,12 +129,20 @@ import Testing
         #expect(AppConfig().restoreCursorAfterTouch)
     }
 
+    /// macOS drives the cursor from the same reports, so the seize is on by
+    /// default — otherwise every touch moves the pointer twice.
+    @Test func suppressSystemCursorDefaultsToOn() {
+        #expect(AppConfig().suppressSystemCursor)
+        #expect(TouchDriverConfiguration().suppressSystemCursor)
+    }
+
     /// Issue #10: existing config.json files predate both keys — they must
     /// fall back to the new defaults rather than resetting the whole file.
     @Test func oldConfigWithoutNewKeysGetsTheNewDefaults() throws {
         let json = #"{"ddcDisplayIndex": 0}"#
         let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
         #expect(decoded.restoreCursorAfterTouch)
+        #expect(decoded.suppressSystemCursor)
         #expect(decoded.ddcSelectEdgeByIdentity)
         #expect(decoded.ddcDisplayIndex == 0)
     }
@@ -142,6 +150,7 @@ import Testing
     @Test func newKeysSurviveARoundTrip() throws {
         var config = AppConfig()
         config.restoreCursorAfterTouch = false
+        config.suppressSystemCursor = false
         config.ddcSelectEdgeByIdentity = false
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)

@@ -122,6 +122,11 @@ Am angeschlossenen XENEON EDGE (Apple M1 Max) verifiziert (Issue #10):
       `invertX/invertY = false`) — oben links `(1373, 2586)`, unten rechts
       `(3771, 3236)` bei Panel-Bounds `(1280, 2560) … (3840, 3280)`
 - [x] Cursor-Rücksprung nach jeder Touch-Geste (`restoreCursorAfterTouch`)
+- [x] Doppelte Cursorbewegung abgestellt: macOS hängt an die
+      Maus-Emulation einen eigenen `AppleUserHIDEventDriver` und bewegt den
+      Zeiger aus denselben Reports mit. Der Treiber öffnet die Interfaces
+      deshalb exklusiv (`suppressSystemCursor`, Default an) — ein Seize,
+      kein HID-Write
 
 Weiterhin offen (siehe #4):
 

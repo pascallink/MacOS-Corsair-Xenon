@@ -59,6 +59,23 @@ public struct TouchDriverConfiguration {
     /// Edge. Independent of `dragEnabled`; applies to tap, double tap,
     /// long-press right click and drag end.
     public var restoreCursorAfterTouch = true
+    /// Take the touch controller's input interfaces away from macOS while
+    /// the driver runs (`kIOHIDOptionsTypeSeizeDevice`).
+    ///
+    /// macOS attaches its own `AppleUserHIDEventDriver` to the
+    /// mouse-emulation interface and turns the very same reports into system
+    /// pointer events — measured in the IORegistry on the connected Edge.
+    /// Every touch then moves the cursor twice: natively, wherever macOS
+    /// maps the absolute coordinates, and again through this driver onto the
+    /// Edge. Seizing the interface stops the native path at the source
+    /// without writing anything to the device.
+    ///
+    /// While seized, touch reaches the system *only* through this driver, so
+    /// the seize must be released whenever touch is switched off — `stop()`
+    /// does that, and the kernel releases it when the process exits. If the
+    /// seize is refused, `start()` falls back to a shared open and
+    /// `systemCursorSuppressed` stays false.
+    public var suppressSystemCursor = true
 
     public init() {}
 }
@@ -127,8 +144,18 @@ public final class TouchDriver {
     public var targetBoundsOverride: CGRect?
 
     public private(set) var deviceConnected = false
+    /// True while the touch interfaces are actually seized, i.e. macOS is
+    /// not generating pointer events from them. False when
+    /// `suppressSystemCursor` is off or the seize was refused.
+    public private(set) var systemCursorSuppressed = false
+
+    /// True while the HID connection is open.
+    public var isRunning: Bool { manager != nil }
 
     private var manager: IOHIDManager?
+    /// Options `start()` opened the manager with; `stop()` must close with
+    /// the same ones.
+    private var openOptions = IOOptionBits(kIOHIDOptionsTypeNone)
 
     private var targetBounds: CGRect? { targetBoundsOverride ?? display?.bounds }
 
@@ -223,13 +250,30 @@ public final class TouchDriver {
         }, context)
 
         IOHIDManagerScheduleWithRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        let shared = IOOptionBits(kIOHIDOptionsTypeNone)
+        let seize = IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+        var options = configuration.suppressSystemCursor ? seize : shared
+        if IOHIDManagerOpen(manager, options) != kIOReturnSuccess, options == seize {
+            // Better a doubled cursor than no touch at all.
+            options = shared
+            _ = IOHIDManagerOpen(manager, options)
+        }
+        openOptions = options
+        systemCursorSuppressed = options == seize
     }
 
     public func stop() {
         guard let manager else { return }
-        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        IOHIDManagerClose(manager, openOptions)
         self.manager = nil
+        openOptions = IOOptionBits(kIOHIDOptionsTypeNone)
+        systemCursorSuppressed = false
+        // A later start() matches the devices afresh; keep `deviceConnected`
+        // as last seen so the menu does not claim the panel went away.
+        slotTables.removeAll()
+        interfaceForDevice.removeAll()
+        openDevices.removeAll()
     }
 
     // MARK: HID input
