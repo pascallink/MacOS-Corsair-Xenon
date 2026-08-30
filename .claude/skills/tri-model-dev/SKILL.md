@@ -1,6 +1,6 @@
 ---
 name: tri-model-dev
-description: 3-Stufen Entwicklungs-Workflow mit Modellwechsel (Opus 5 -> Fable 5 -> Sonnet 5). Analyse und Issue, technischer Plan, lokale Umsetzung — jede Stufe als Subagent auf dem passenden Modell.
+description: 3-Stufen Entwicklungs-Workflow mit Modellwechsel (Opus 5 -> Opus 5 -> Sonnet 5). Analyse und Issue, technischer Plan, lokale Umsetzung — jede Stufe als Subagent auf dem passenden Modell.
 ---
 
 Führe für die gegebene Anforderung oder Problemstellung den folgenden
@@ -45,9 +45,9 @@ Der Analyst legt das Issue **nicht** selbst an. Wenn er fertig ist:
 
 Merke dir die Issue-Nummer für die weiteren Stufen.
 
-## Stufe 2: Umsetzungsplanung — Fable 5
+## Stufe 2: Umsetzungsplanung — Opus 5
 
-Rufe den Subagenten `tri-planner` mit `model: "fable"` und
+Rufe den Subagenten `tri-planner` mit `model: "opus"` und
 `run_in_background: false` auf. Gib ihm mit:
 
 - den Pfad des Run-Verzeichnisses,

@@ -104,12 +104,31 @@ xeneonctl touch-monitor         # Live-Touchereignisse (Diagnose, keine Klicks)
 
 ## Status / Roadmap
 
-Dieses Projekt ist jung und **auf echter Hardware noch nicht flächendeckend
-getestet** — Fehlerberichte mit `xeneonctl probe`-Ausgabe sind sehr willkommen.
+Am angeschlossenen XENEON EDGE (Apple M1 Max) verifiziert (Issue #10):
 
-- [ ] Mehrfinger-Gesten (Scrollen mit zwei Fingern)
+- [x] Display-Erkennung (`xeneonctl probe`: Bounds, EDID-Identität)
+- [x] Vendor-HID-Erkennung und Bragi-GET-Echo (`xeneonctl firmware` liefert
+      `01 02 13 …`, davor stumm wegen eines abgeschnittenen Report-ID-Bytes)
+- [x] DDC/CI-Lesen ohne manuellen `--display`-Index (`xeneonctl brightness`,
+      zuvor `IOReturn 0xE0114000` auf dem Default-Index)
+- [x] Touch-Digitizer wird als einziges der drei HID-Interfaces des
+      Touch-Controllers geöffnet, Kontaktslot 0 sauber isoliert
+- [x] Cursor-Rücksprung nach jeder Touch-Geste (`restoreCursorAfterTouch`)
+
+Weiterhin offen (siehe #4):
+
+- [ ] Welche `touchRotation`/`invertX`/`invertY`-Kombination am montierten
+      Panel stimmt — `xeneonctl touch-monitor` gibt dafür jetzt Rohwerte,
+      Slot und normalisierte Koordinaten aus
+- [ ] Ob die Maus-Emulations-Schnittstelle des Touch-Controllers im Betrieb
+      selbst Reports liefert (macOS würde den Cursor dann zusätzlich nativ
+      bewegen); falls ja, wäre die Abhilfe ein Feature-Write an den
+      Controller — bewusst nicht Teil von #10
+- [ ] Ob `brightness <wert>` das Panel sichtbar ändert (Schreibzugriff,
+      absichtlich nicht automatisiert getestet)
+- [ ] Mehrfinger-Gesten (Scrollen mit zwei Fingern) — #6
 - [ ] Intel-Macs: DDC über IOI2C
-- [ ] Weitere Bragi-Properties (Orientierung, Panel-Info) verifizieren
+- [ ] Weitere Bragi-Properties (Orientierung, Panel-Info) verifizieren — #8
 - [ ] GPU-/Temperatur-Sensoren
 - [ ] Grafische Einstellungen statt JSON
 
