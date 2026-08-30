@@ -55,6 +55,16 @@ func openDDC() -> DDCControl {
     }
 }
 
+/// Human-readable name for a touch HID interface, by usage page/usage.
+func touchInterfaceName(_ info: TouchInterfaceInfo) -> String {
+    switch (info.usagePage, info.usage) {
+    case (EdgeConstants.digitizerUsagePage, EdgeConstants.digitizerUsage): return "digitizer"
+    case (0x01, 0x02): return "mouse emulation"
+    case (0xFF0A, 0xFF): return "vendor channel"
+    default: return "unknown"
+    }
+}
+
 switch command {
 case "probe":
     print("== CORSAIR XENEON EDGE — probe ==")
@@ -73,7 +83,32 @@ case "probe":
         print("Vendor HID: 1b1c:1d0d not found")
     }
 
-    print("DDC       : \(DDCControl.externalDisplayCount()) external display I2C service(s)")
+    let touchInterfaces = TouchDriver.touchInterfaces()
+    if touchInterfaces.isEmpty {
+        print("Touch HID : \(String(format: "%04x", EdgeConstants.touchVendorID)):" +
+              "\(String(format: "%04x", EdgeConstants.touchProductID)) not found")
+    } else {
+        for (i, iface) in touchInterfaces.enumerated() {
+            let label = String(format: "0x%02X/0x%02X", iface.usagePage, iface.usage)
+            let marker = iface.matchedByDriver ? " <- driver" : ""
+            let prefix = i == 0 ? "Touch HID : " : "            "
+            print("\(prefix)\(label) \(touchInterfaceName(iface)) (\(iface.elementCount) elements)\(marker)")
+        }
+    }
+
+    let services = DDCServiceLocator.externalServices()
+    print("DDC       : \(services.count) external display I2C service(s)")
+    for service in services {
+        let name = service.isUsable ? service.productName : "—"
+        let isEdge = service.productName.uppercased().contains(EdgeConstants.displayNameHint)
+        let marker = (service.isUsable && isEdge) ? " <- Edge" : ""
+        let unusable = service.isUsable ? "" : " (no framebuffer, unusable)"
+        print("            [\(service.index)] \(service.portTag)  \(name)\(unusable)\(marker)")
+    }
+
+    let accessibility = TouchDriver.hasAccessibilityPermission() ? "granted" : "not granted"
+    let inputMonitoring = TouchDriver.hasInputMonitoringPermission() ? "granted" : "not granted"
+    print("Access    : Accessibility \(accessibility), Input Monitoring \(inputMonitoring)")
 
 case "firmware":
     guard let device = BragiDevice.find() else {
@@ -139,13 +174,36 @@ case "ddc":
     }
 
 case "touch-monitor":
+    guard TouchDriver.hasInputMonitoringPermission() else {
+        fail("""
+        Input Monitoring is missing — without this permission no touch events \
+        arrive at all. Enable it under System Settings > Privacy & Security > \
+        Input Monitoring for this terminal (or whichever app runs xeneonctl), \
+        then restart it.
+        """)
+    }
     final class Monitor: TouchDriverDelegate {
         func touchDriver(_ driver: TouchDriver, deviceConnected connected: Bool) {
             print(connected ? "touch controller connected (27c0:0859)"
                             : "touch controller disconnected")
         }
         func touchDriver(_ driver: TouchDriver, didTouchAt point: CGPoint, down: Bool) {
-            print("\(down ? "DOWN" : "UP  ") x=\(Int(point.x)) y=\(Int(point.y))")
+            // Superseded by didObserve below (raw values, slot, movements);
+            // kept only to satisfy the protocol.
+        }
+        func touchDriver(_ driver: TouchDriver, didObserve diagnostics: TouchDiagnostics) {
+            let label: String
+            switch diagnostics.phase {
+            case .down: label = "DOWN"
+            case .moved: label = "MOVE"
+            case .up: label = "UP  "
+            }
+            let slot = diagnostics.slot.map(String.init) ?? "?"
+            let raw = String(format: "(%6d,%6d)", diagnostics.rawX, diagnostics.rawY)
+            let maxima = "(\(diagnostics.maxX),\(diagnostics.maxY))"
+            let norm = String(format: "(%.3f,%.3f)", diagnostics.normalized.x, diagnostics.normalized.y)
+            let mapped = "(\(Int(diagnostics.mapped.x)), \(Int(diagnostics.mapped.y)))"
+            print("\(label) slot=\(slot) raw=\(raw)/\(maxima) norm=\(norm) -> \(mapped)")
         }
     }
     let driver = TouchDriver()
@@ -154,7 +212,11 @@ case "touch-monitor":
     driver.display = EdgeDisplay.find()
     // Diagnostics only: never inject events from the CLI.
     driver.injectionEnabled = false
-    if driver.display == nil {
+    if let display = driver.display {
+        let b = display.bounds
+        print("bounds: \(Int(b.width))x\(Int(b.height)) at (\(Int(b.minX)), \(Int(b.minY))) " +
+              "(global CG coordinates, y grows downward)")
+    } else {
         print("note: Edge display not found; printing panel-native coordinates")
     }
     print("monitoring touches — Ctrl+C to stop")

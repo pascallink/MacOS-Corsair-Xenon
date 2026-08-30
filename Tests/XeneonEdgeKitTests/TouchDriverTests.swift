@@ -45,6 +45,17 @@ final class RecordingTouchSink: TouchEventSink {
     }
 }
 
+/// Recording delegate: captures calibration diagnostics without a real
+/// observer.
+final class RecordingTouchDelegate: TouchDriverDelegate {
+    private(set) var diagnostics: [TouchDiagnostics] = []
+    func touchDriver(_ driver: TouchDriver, deviceConnected connected: Bool) {}
+    func touchDriver(_ driver: TouchDriver, didTouchAt point: CGPoint, down: Bool) {}
+    func touchDriver(_ driver: TouchDriver, didObserve diagnostics: TouchDiagnostics) {
+        self.diagnostics.append(diagnostics)
+    }
+}
+
 @Suite struct TouchDriverTests {
     /// Fresh driver wired to a recording sink and a fixed Edge-sized target
     /// rectangle, so gestures do not need a real NSScreen.
@@ -306,5 +317,50 @@ final class RecordingTouchSink: TouchEventSink {
                 #expect(sink.warps.isEmpty == !restore)
             }
         }
+    }
+
+    // MARK: Step 7 — calibration diagnostics
+
+    @Test func movementIsReportedToTheDelegate() {
+        let (driver, _) = makeDriver()
+        let observer = RecordingTouchDelegate()
+        driver.delegate = observer
+        driver.handle(sample: x(0))
+        driver.handle(sample: y(0))
+        driver.handle(sample: tip(true))
+        driver.handle(sample: x(8000)) // move while touching
+        #expect(observer.diagnostics.contains { $0.phase == .moved })
+    }
+
+    @Test func diagnosticsCarryRawNormalizedAndMapped() throws {
+        let (driver, _) = makeDriver()
+        let observer = RecordingTouchDelegate()
+        driver.delegate = observer
+        driver.handle(sample: x(8192, slot: 0))
+        driver.handle(sample: y(4800, slot: 0))
+        driver.handle(sample: tip(true, slot: 0))
+        let diag = try #require(observer.diagnostics.first)
+        #expect(diag.rawX == 8192)
+        #expect(diag.rawY == 4800)
+        #expect(diag.slot == 0)
+        let expected = TouchMapping.normalized(rawX: 8192, rawY: 4800, maxX: diag.maxX, maxY: diag.maxY,
+                                               rotation: 0, invertX: false, invertY: false)
+        #expect(abs(diag.normalized.x - expected.x) < 0.001)
+        #expect(abs(diag.normalized.y - expected.y) < 0.001)
+        let expectedMapped = EdgeDisplay.globalPoint(normalizedX: diag.normalized.x, normalizedY: diag.normalized.y,
+                                                     in: CGRect(x: 1280, y: 2560, width: 2560, height: 720))
+        #expect(diag.mapped == expectedMapped)
+    }
+
+    @Test func diagnosticsAreEmittedForDownMovedUp() {
+        let (driver, _) = makeDriver()
+        let observer = RecordingTouchDelegate()
+        driver.delegate = observer
+        driver.handle(sample: x(0))
+        driver.handle(sample: y(0))
+        driver.handle(sample: tip(true))
+        driver.handle(sample: x(8000))
+        driver.handle(sample: tip(false))
+        #expect(observer.diagnostics.map(\.phase) == [.down, .moved, .up])
     }
 }

@@ -51,9 +51,46 @@ public struct TouchDriverConfiguration {
     public init() {}
 }
 
+/// Raw data of a contact event, for calibration. Deliberately carries every
+/// intermediate stage, because `touchRotation` / `invertX` / `invertY` can
+/// only be derived from the raw value, the normalization and the mapping
+/// together.
+public struct TouchDiagnostics: Equatable {
+    public enum Phase: String { case down, moved, up }
+    public let phase: Phase
+    /// Contact slot the last value came from (nil = unknown).
+    public let slot: Int?
+    public let rawX: Int
+    public let rawY: Int
+    public let maxX: Int
+    public let maxY: Int
+    /// After rotation/mirroring, 0...1.
+    public let normalized: CGPoint
+    /// Global CoreGraphics coordinates (or panel coordinates without a display).
+    public let mapped: CGPoint
+
+    public init(phase: Phase, slot: Int?, rawX: Int, rawY: Int, maxX: Int, maxY: Int,
+                normalized: CGPoint, mapped: CGPoint) {
+        self.phase = phase
+        self.slot = slot
+        self.rawX = rawX
+        self.rawY = rawY
+        self.maxX = maxX
+        self.maxY = maxY
+        self.normalized = normalized
+        self.mapped = mapped
+    }
+}
+
 public protocol TouchDriverDelegate: AnyObject {
     func touchDriver(_ driver: TouchDriver, deviceConnected connected: Bool)
     func touchDriver(_ driver: TouchDriver, didTouchAt point: CGPoint, down: Bool)
+    func touchDriver(_ driver: TouchDriver, didObserve diagnostics: TouchDiagnostics)
+}
+
+/// Diagnostics are optional — existing delegates (AppDelegate) stay unchanged.
+public extension TouchDriverDelegate {
+    func touchDriver(_ driver: TouchDriver, didObserve diagnostics: TouchDiagnostics) {}
 }
 
 public final class TouchDriver {
@@ -110,6 +147,18 @@ public final class TouchDriver {
         let key = "AXTrustedCheckOptionPrompt" as CFString
         let options = [key: prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// True when the process may read HID input (Input Monitoring). Without
+    /// this permission the driver stays silent rather than reporting an error.
+    public static func hasInputMonitoringPermission() -> Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    /// Requests Input Monitoring (shows the system dialog).
+    @discardableResult
+    public static func requestInputMonitoringPermission() -> Bool {
+        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
     }
 
     // MARK: Lifecycle
@@ -189,16 +238,16 @@ public final class TouchDriver {
         case (0x01, 0x30): // Generic Desktop / X
             rawX = sample.value
             if sample.logicalMax > 0 { maxX = sample.logicalMax }
-            if touching { contactMoved() }
+            if touching { contactMoved(slot: sample.slot) }
         case (0x01, 0x31): // Generic Desktop / Y
             rawY = sample.value
             if sample.logicalMax > 0 { maxY = sample.logicalMax }
-            if touching { contactMoved() }
+            if touching { contactMoved(slot: sample.slot) }
         case (0x0D, 0x42): // Digitizer / Tip Switch — the only contact source
                            // on this interface. Button 1 (0x09/0x01) lives on
                            // the mouse-emulation interface, which this driver
                            // does not open.
-            if sample.value != 0 { contactDown() } else { contactUp() }
+            if sample.value != 0 { contactDown(slot: sample.slot) } else { contactUp(slot: sample.slot) }
         default:
             break
         }
@@ -253,7 +302,7 @@ public final class TouchDriver {
 
     // MARK: Contact state machine
 
-    private func contactDown() {
+    private func contactDown(slot: Int? = nil) {
         guard !touching, let point = currentPoint() else { return }
         touching = true
         dragging = false
@@ -265,6 +314,7 @@ public final class TouchDriver {
             ? eventSink.cursorLocation() : nil
 
         delegate?.touchDriver(self, didTouchAt: point, down: true)
+        reportDiagnostics(phase: .down, slot: slot, point: point)
 
         if configuration.dragEnabled {
             postMouse(.leftDown, at: point, clickState: clickState(for: point))
@@ -276,9 +326,10 @@ public final class TouchDriver {
         }
     }
 
-    private func contactMoved() {
+    private func contactMoved(slot: Int? = nil) {
         guard touching, let point = currentPoint() else { return }
         lastPoint = point
+        reportDiagnostics(phase: .moved, slot: slot, point: point)
         if configuration.dragEnabled {
             if dragging || distance(point, downPoint) > configuration.tapSlop {
                 dragging = true
@@ -287,11 +338,12 @@ public final class TouchDriver {
         }
     }
 
-    private func contactUp() {
+    private func contactUp(slot: Int? = nil) {
         guard touching else { return }
         touching = false
         let point = lastPoint
         delegate?.touchDriver(self, didTouchAt: point, down: false)
+        reportDiagnostics(phase: .up, slot: slot, point: point)
 
         if longPressFired {
             restoreCursorIfNeeded() // right click already delivered
@@ -348,6 +400,19 @@ public final class TouchDriver {
         let isDouble = eventSink.now().timeIntervalSince(lastTapTime) < configuration.doubleTapSeconds
             && distance(point, lastTapPoint) <= configuration.tapSlop * 2
         return isDouble ? 2 : 1
+    }
+
+    /// Reports the current raw/normalized/mapped state for calibration.
+    /// `contactMoved` used to report nothing at all, which is exactly what
+    /// made `touch-monitor` useless for calibration.
+    private func reportDiagnostics(phase: TouchDiagnostics.Phase, slot: Int?, point: CGPoint) {
+        let n = TouchMapping.normalized(rawX: rawX, rawY: rawY, maxX: maxX, maxY: maxY,
+                                        rotation: configuration.rotation,
+                                        invertX: configuration.invertX,
+                                        invertY: configuration.invertY)
+        delegate?.touchDriver(self, didObserve: TouchDiagnostics(
+            phase: phase, slot: slot, rawX: rawX, rawY: rawY, maxX: maxX, maxY: maxY,
+            normalized: n, mapped: point))
     }
 
     private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
