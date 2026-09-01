@@ -20,9 +20,10 @@ struct WidgetConfig: Codable, Equatable {
     var corner: String = "bottomRight"
     /// Margin from the display edges in points.
     var margin: Double = 24
-    /// Widget size in points.
+    /// Widget size in points. The default leaves room for the chat
+    /// overview; without it (`showSessions: false`) about 250 is enough.
     var width: Double = 560
-    var height: Double = 250
+    var height: Double = 320
     /// Count cache reads towards the displayed token number. Plan limits
     /// weigh cache reads barely at all, so the default leaves them out.
     var includeCacheReads: Bool = false
@@ -38,6 +39,22 @@ struct WidgetConfig: Codable, Equatable {
     /// account). Each one keeps its own 5h window, so they are never summed.
     /// Empty = auto-detect a single profile, the previous behaviour.
     var claudeProfiles: [ClaudeProfile] = []
+    /// Show the chat overview (how many chats work / ask / idle) below the
+    /// usage numbers. This is what makes several parallel Claude Code
+    /// sessions visible at a glance.
+    var showSessions: Bool = true
+    /// Show the newest unanswered question as a line of text. Off keeps the
+    /// widget to bare counters — the question text is chat content, and the
+    /// Edge display may not be private.
+    var showLastQuestion: Bool = true
+    /// How many individual chats are listed under the counters; 0 shows the
+    /// counters only.
+    var sessionRows: Int = 3
+    /// A chat mid-turn counts as "active" while its transcript was written
+    /// to within this many seconds.
+    var sessionActiveSeconds: Double = 300
+    /// Chats untouched for longer than this many hours drop off the list.
+    var sessionOpenHours: Double = 12
 
     // MARK: Tolerant decoding
     // The synthesized Codable init requires every key to be present, so a
@@ -60,6 +77,11 @@ struct WidgetConfig: Codable, Equatable {
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
         cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
         claudeProfiles = try c.decodeIfPresent([ClaudeProfile].self, forKey: .claudeProfiles) ?? d.claudeProfiles
+        showSessions = try c.decodeIfPresent(Bool.self, forKey: .showSessions) ?? d.showSessions
+        showLastQuestion = try c.decodeIfPresent(Bool.self, forKey: .showLastQuestion) ?? d.showLastQuestion
+        sessionRows = try c.decodeIfPresent(Int.self, forKey: .sessionRows) ?? d.sessionRows
+        sessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .sessionActiveSeconds) ?? d.sessionActiveSeconds
+        sessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .sessionOpenHours) ?? d.sessionOpenHours
     }
 
     static var fileURL: URL {

@@ -13,11 +13,15 @@ final class UsageViewModel: ObservableObject {
     @Published var config = WidgetConfig.load()
     /// Profiles that have received at least one entry from a cloud relay.
     @Published var cloudProfileIDs: Set<UUID> = []
+    /// Overview of the open Claude Code chats (issue #14): how many are
+    /// working, how many wait for an answer, how many just sit there.
+    @Published var sessions = ClaudeSessionsSnapshot()
 
     /// Stands in for the auto-detected profile when none are configured.
     static let autoProfileID = UUID()
 
     private let reader = ClaudeUsageReader()
+    private let sessionReader = ClaudeSessionReader()
     private let queue = DispatchQueue(label: "xeneon.claude-usage", qos: .utility)
     private var timer: Timer?
     private var cloudTimer: Timer?
@@ -117,8 +121,16 @@ final class UsageViewModel: ObservableObject {
     func refresh() {
         let cloud = cloudEntries
         let profiles = config.claudeProfiles
+        let sessionOptions = ClaudeSessionReader.Options(
+            activeWindow: max(30, config.sessionActiveSeconds),
+            openWindow: max(600, config.sessionOpenHours * 3_600)
+        )
+        let wantsSessions = config.showSessions
         queue.async { [weak self] in
             guard let self else { return }
+            let sessions = wantsSessions
+                ? self.sessionReader.snapshot(for: profiles, options: sessionOptions)
+                : ClaudeSessionsSnapshot()
             let usages: [ClaudeUsageReader.ProfileUsage]
             if profiles.isEmpty {
                 let snap = self.reader.snapshot(
@@ -130,6 +142,7 @@ final class UsageViewModel: ObservableObject {
             }
             DispatchQueue.main.async {
                 self.profileUsages = usages
+                self.sessions = sessions
             }
         }
     }
@@ -197,6 +210,16 @@ final class UsageViewModel: ObservableObject {
     var resetClockTime: String { resetClockTime(snapshot) }
     var modelName: String { modelName(snapshot) }
     var planName: String? { planName(snapshot) }
+
+    /// The chats listed under the counters, capped by `sessionRows`.
+    var sessionRows: [ClaudeSessionSummary] {
+        Array(sessions.sessions.prefix(max(0, config.sessionRows)))
+    }
+
+    /// The newest open question, when the config allows showing its text.
+    var latestQuestion: ClaudeSessionSummary? {
+        config.showLastQuestion ? sessions.latestQuestion : nil
+    }
 
     static func tokenString(_ tokens: Int) -> String { UsageFormat.tokens(tokens) }
     static func costString(_ usd: Double) -> String { UsageFormat.cost(usd) }

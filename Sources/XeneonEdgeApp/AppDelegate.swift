@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions
 
     var title: String {
         switch self {
@@ -21,6 +21,7 @@ private enum WidgetToggle: Int, CaseIterable {
         case .launcher: return "Schnellstart"
         case .weather: return "Wetter"
         case .claude: return "Claude-Nutzung"
+        case .claudeSessions: return "Claude-Chats"
         }
     }
 }
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let volumeModel = VolumeModel()
     private let weatherModel = WeatherModel()
     private let claudeModel = ClaudeUsageModel()
+    private let claudeSessionsModel = ClaudeSessionsModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -70,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(volumeModel)
             .environmentObject(weatherModel)
             .environmentObject(claudeModel)
+            .environmentObject(claudeSessionsModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -117,6 +120,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             claudeModel.stop()
         }
+        if configStore.config.showClaudeSessions {
+            claudeSessionsModel.start(
+                profiles: configStore.config.claudeProfiles,
+                options: ClaudeSessionReader.Options(
+                    activeWindow: max(30, configStore.config.claudeSessionActiveSeconds),
+                    openWindow: max(600, configStore.config.claudeSessionOpenHours * 3_600)
+                )
+            )
+        } else {
+            claudeSessionsModel.stop()
+        }
         if configStore.config.showWeather {
             weatherModel.start(latitude: configStore.config.weatherLatitude,
                                longitude: configStore.config.weatherLongitude)
@@ -134,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: return configStore.config.showLauncher
         case .weather: return configStore.config.showWeather
         case .claude: return configStore.config.showClaudeUsage
+        case .claudeSessions: return configStore.config.showClaudeSessions
         }
     }
 
@@ -146,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: configStore.config.showLauncher = value
         case .weather: configStore.config.showWeather = value
         case .claude: configStore.config.showClaudeUsage = value
+        case .claudeSessions: configStore.config.showClaudeSessions = value
         }
     }
 

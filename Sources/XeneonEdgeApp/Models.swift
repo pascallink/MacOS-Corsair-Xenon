@@ -166,6 +166,56 @@ final class VolumeModel: ObservableObject {
     }
 }
 
+// MARK: - Claude Code chat overview
+
+/// Watches the open Claude Code chats (issue #14): how many are working, how
+/// many wait for an answer, how many are open but idle — plus the newest
+/// unanswered question. Reads the same local transcripts as the usage model
+/// but keeps its own timer, so either panel can run without the other.
+final class ClaudeSessionsModel: ObservableObject {
+    @Published var snapshot = ClaudeSessionsSnapshot()
+
+    private let reader = ClaudeSessionReader()
+    private let queue = DispatchQueue(label: "xeneon.claude-sessions", qos: .utility)
+    private var timer: Timer?
+    private var profiles: [ClaudeProfile] = []
+    private var options = ClaudeSessionReader.Options()
+
+    /// Refreshed more often than the token numbers: "is this chat asking me
+    /// something?" is only useful while it is still true.
+    private let interval: TimeInterval = 20
+
+    func start(profiles: [ClaudeProfile] = [], options: ClaudeSessionReader.Options) {
+        self.profiles = profiles
+        self.options = options
+        guard timer == nil else {
+            refresh()
+            return
+        }
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        profiles = []
+        snapshot = ClaudeSessionsSnapshot()
+    }
+
+    func refresh() {
+        let profiles = self.profiles
+        let options = self.options
+        queue.async { [weak self] in
+            guard let self else { return }
+            let snapshot = self.reader.snapshot(for: profiles, options: options)
+            DispatchQueue.main.async { self.snapshot = snapshot }
+        }
+    }
+}
+
 // MARK: - Claude Code usage (local logs)
 
 final class ClaudeUsageModel: ObservableObject {

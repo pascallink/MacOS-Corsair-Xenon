@@ -29,6 +29,11 @@ liefert diese Funktionen nativ für macOS:
   (`"showClaudeUsage": true` in der config.json) oder als eigenständiges
   Floating-Widget (`ClaudeUsageWidget.app`) →
   [docs/CLAUDE-USAGE-WIDGET.md](docs/CLAUDE-USAGE-WIDGET.md).
+- **Claude-Chat-Übersicht** — bei mehreren parallelen Claude-Code-Chats:
+  wie viele gerade arbeiten, wie viele auf eine Antwort warten, wie viele
+  offen herumliegen, dazu laufende Subagenten und optional die zuletzt
+  offene Frage im Klartext. Im Widget standardmäßig an, im Dashboard über
+  Widgets → Claude-Chats (`"showClaudeSessions": true`).
 - **`xeneonctl`** — Kommandozeilenwerkzeug (probe, brightness, ddc, touch-monitor).
 
 Technische Details zum Gerät und Protokoll: [PROTOCOL-MACOS.md](PROTOCOL-MACOS.md).
