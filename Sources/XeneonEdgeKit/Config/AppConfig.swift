@@ -76,6 +76,20 @@ public struct AppConfig: Codable, Equatable {
     /// account). Each one keeps its own 5h window, so they are never summed.
     /// Empty = auto-detect a single profile, the previous behaviour.
     public var claudeProfiles: [ClaudeProfile] = []
+    /// Claude-Code chat overview panel (how many chats work / ask / idle),
+    /// for working with several parallel sessions.
+    public var showClaudeSessions = false
+    /// Show the newest unanswered question as text in that panel. Off keeps
+    /// it to bare counters — the question is chat content and the Edge
+    /// display may not be private.
+    public var claudeShowLastQuestion = true
+    /// How many individual chats the panel lists; 0 = counters only.
+    public var claudeSessionRows = 4
+    /// A chat mid-turn counts as "active" while its transcript was written
+    /// to within this many seconds.
+    public var claudeSessionActiveSeconds: Double = 300
+    /// Chats untouched for longer than this many hours drop off the list.
+    public var claudeSessionOpenHours: Double = 12
 
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
@@ -129,6 +143,11 @@ public struct AppConfig: Codable, Equatable {
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
         cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
         claudeProfiles = try c.decodeIfPresent([ClaudeProfile].self, forKey: .claudeProfiles) ?? d.claudeProfiles
+        showClaudeSessions = try c.decodeIfPresent(Bool.self, forKey: .showClaudeSessions) ?? d.showClaudeSessions
+        claudeShowLastQuestion = try c.decodeIfPresent(Bool.self, forKey: .claudeShowLastQuestion) ?? d.claudeShowLastQuestion
+        claudeSessionRows = try c.decodeIfPresent(Int.self, forKey: .claudeSessionRows) ?? d.claudeSessionRows
+        claudeSessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .claudeSessionActiveSeconds) ?? d.claudeSessionActiveSeconds
+        claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName

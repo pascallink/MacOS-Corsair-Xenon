@@ -13,6 +13,7 @@ enum EdgeTheme {
     static let panel = Color(red: 0.10, green: 0.11, blue: 0.135)
     static let panelBorder = Color.white.opacity(0.07)
     static let accent = Color(red: 0.93, green: 0.79, blue: 0.12) // Corsair yellow
+    static let good = Color(red: 0.35, green: 0.80, blue: 0.45)
     static let textPrimary = Color.white.opacity(0.92)
     static let textSecondary = Color.white.opacity(0.55)
 }
@@ -24,6 +25,7 @@ struct DashboardView: View {
     @EnvironmentObject var volume: VolumeModel
     @EnvironmentObject var weather: WeatherModel
     @EnvironmentObject var claude: ClaudeUsageModel
+    @EnvironmentObject var claudeSessions: ClaudeSessionsModel
 
     var body: some View {
         GeometryReader { geo in
@@ -38,10 +40,12 @@ struct DashboardView: View {
                     StatsPanel()
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
-                    || configStore.config.showClaudeUsage {
+                    || configStore.config.showClaudeUsage
+                    || configStore.config.showClaudeSessions {
                     VStack(spacing: 16) {
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
+                        if configStore.config.showClaudeSessions { ClaudeSessionsPanel() }
                         if configStore.config.showVolume { VolumePanel() }
                     }
                     .frame(maxWidth: geo.size.width * 0.26)
@@ -301,6 +305,131 @@ struct MediaButton: View {
                 .background(Circle().fill(prominent ? EdgeTheme.accent : Color.white.opacity(0.09)))
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Claude Code chats
+
+/// Which chats need me? Counters for working / asking / idle chats, the
+/// newest open question, and the chats themselves in order of urgency.
+struct ClaudeSessionsPanel: View {
+    @EnvironmentObject var claudeSessions: ClaudeSessionsModel
+    @EnvironmentObject var configStore: ConfigStore
+
+    private var snapshot: ClaudeSessionsSnapshot { claudeSessions.snapshot }
+
+    static func color(for state: ClaudeSessionState) -> Color {
+        switch state {
+        case .working: return EdgeTheme.good
+        case .awaitingAnswer: return EdgeTheme.accent
+        case .idle: return EdgeTheme.textSecondary
+        }
+    }
+
+    var body: some View {
+        Panel(title: "Claude-Chats", systemImage: "bubble.left.and.bubble.right") {
+            VStack(alignment: .leading, spacing: 10) {
+                counters
+                if configStore.config.claudeShowLastQuestion,
+                   let question = snapshot.latestQuestion {
+                    questionCard(question)
+                }
+                ForEach(snapshot.sessions.prefix(max(0, configStore.config.claudeSessionRows))) {
+                    sessionRow($0)
+                }
+                Spacer(minLength: 0)
+                if snapshot.sessions.isEmpty {
+                    Text("keine offenen Chats")
+                        .font(.system(size: 12))
+                        .foregroundColor(EdgeTheme.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var counters: some View {
+        HStack(spacing: 16) {
+            counter(snapshot.activeCount, label: "aktiv", state: .working)
+            counter(snapshot.questionCount, label: "Frage", state: .awaitingAnswer)
+            counter(snapshot.idleCount, label: "offen", state: .idle)
+            Spacer(minLength: 0)
+            if snapshot.runningAgents > 0 {
+                Label("\(snapshot.runningAgents)", systemImage: "person.2.fill")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textSecondary)
+            }
+        }
+    }
+
+    private func counter(_ value: Int, label: String, state: ClaudeSessionState) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Self.color(for: state))
+                    .frame(width: 8, height: 8)
+                Text("\(value)")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textPrimary)
+            }
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(EdgeTheme.textSecondary)
+        }
+    }
+
+    private func questionCard(_ session: ClaudeSessionSummary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "questionmark.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(EdgeTheme.accent)
+                Text(session.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(EdgeTheme.textPrimary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("vor \(SessionFormat.age(session.age(at: snapshot.lastUpdated)))")
+                    .font(.system(size: 11))
+                    .foregroundColor(EdgeTheme.textSecondary)
+            }
+            Text(SessionFormat.oneLine(session.question ?? "", limit: 220))
+                .font(.system(size: 13))
+                .foregroundColor(EdgeTheme.textPrimary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(EdgeTheme.accent.opacity(0.14))
+        )
+    }
+
+    private func sessionRow(_ session: ClaudeSessionSummary) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Self.color(for: session.state))
+                .frame(width: 7, height: 7)
+            Text(session.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(EdgeTheme.textPrimary)
+                .lineLimit(1)
+            if session.runningAgents > 0 {
+                Label("\(session.runningAgents)", systemImage: "person.2.fill")
+                    .font(.system(size: 10))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textSecondary)
+            }
+            Spacer(minLength: 4)
+            Text(SessionFormat.age(session.age(at: snapshot.lastUpdated)))
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundColor(EdgeTheme.textSecondary)
+        }
     }
 }
 

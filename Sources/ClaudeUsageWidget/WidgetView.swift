@@ -23,11 +23,17 @@ struct WidgetView: View {
     @ObservedObject var model: UsageViewModel
 
     var body: some View {
-        Group {
-            if model.isMultiProfile {
-                profileList
-            } else {
-                singleProfile
+        VStack(alignment: .leading, spacing: 12) {
+            Group {
+                if model.isMultiProfile {
+                    profileList
+                } else {
+                    singleProfile
+                }
+            }
+            if model.config.showSessions {
+                Divider().overlay(WidgetTheme.border)
+                ChatOverview(model: model)
             }
         }
         .padding(18)

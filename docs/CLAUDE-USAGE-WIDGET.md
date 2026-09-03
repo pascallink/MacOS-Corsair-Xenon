@@ -14,6 +14,7 @@ Kosten (Fenster + heute) · In/Out/Cache-Tokens · Modell-Badge · Plan-Badge
 | **Token-Verbrauch im 5-h-Fenster** + verbleibende Zeit bis zum Reset | `~/.claude/projects/**/*.jsonl` — jede Assistant-Antwort enthält dort ihre Token-Zählung; die Fenster werden wie bei den Claude-Plänen in 5-Stunden-Blöcken gruppiert (an der vollen Stunde der ersten Nachricht verankert, wie beim ccusage-Community-Tool) |
 | **Geschätzte Kosten** (aktuelles Fenster + heute) | Tokenzahlen × Preistabelle (Opus 5: $5/$25, Sonnet: $3/$15, Haiku 4.5: $1/$5, Fable 5: $10/$50 pro Mio. Tokens; Cache-Write ≈ 1,25×, Cache-Read ≈ 0,1× Input). Bei Abo-Plänen sind das *Gegenwerte*, keine echte Rechnung |
 | **Modus/Modell** (Opus / Sonnet / Haiku / Fable) | Modell-ID der letzten Assistant-Antwort |
+| **Offene Chats** (aktiv / mit Frage / offen-inaktiv) + zuletzt offene Frage | `~/.claude/projects/**/*.jsonl` — aus dem Ende jedes Transkripts wird abgeleitet, ob Claude noch arbeitet, auf eine Antwort wartet oder der Chat nur offen herumliegt (siehe „Chat-Übersicht") |
 | **Plan** (Pro/Max…) | `~/.claude/.credentials.json` — es wird **ausschließlich** das Feld `subscriptionType` gelesen; die OAuth-Tokens in der Datei werden nie angefasst, geloggt oder übertragen |
 
 **Datenschutz:** Standardmäßig läuft alles lokal. Das Widget macht keinerlei
@@ -73,9 +74,14 @@ Menüleiste „Konfiguration neu laden“ wählen):
   "corner": "bottomRight",
   "margin": 24,
   "width": 560,
-  "height": 250,
+  "height": 320,
   "includeCacheReads": false,
-  "claudeProfiles": []
+  "claudeProfiles": [],
+  "showSessions": true,
+  "showLastQuestion": true,
+  "sessionRows": 3,
+  "sessionActiveSeconds": 300,
+  "sessionOpenHours": 12
 }
 ```
 
@@ -90,6 +96,67 @@ Menüleiste „Konfiguration neu laden“ wählen):
 - **`cloudGistID`** / **`cloudPollSeconds`** — siehe Abschnitt Cloud-Relay.
 - **`claudeProfiles`** — mehrere Claude-Logins getrennt anzeigen, siehe
   nächster Abschnitt. Leer (Standard) = ein Profil automatisch erkennen.
+- **`showSessions`**, **`showLastQuestion`**, **`sessionRows`**,
+  **`sessionActiveSeconds`**, **`sessionOpenHours`** — Chat-Übersicht, siehe
+  Abschnitt „Chat-Übersicht". Ohne sie (`"showSessions": false`) genügt
+  wieder eine `height` von etwa 250.
+
+## Chat-Übersicht: parallele Claude-Code-Sessions im Blick
+
+Wer mehrere Claude-Code-Chats parallel laufen lässt (jeder mit eigenen
+Subagenten), verliert leicht den Überblick, *welcher* davon gerade etwas von
+einem will. Das Widget zeigt deshalb unter den Nutzungszahlen eine Zeile mit
+drei Zählern — und auf Wunsch die zuletzt offene Frage im Klartext:
+
+```
+Chats   ● 2 aktiv   ● 1 Frage   ○ 3 offen   👥 2 Agents
+
+❓ MacOS-Corsair-Xenon                                   vor 3 min
+   Soll ich das Dashboard-Panel gleich mitbauen?
+
+● MacOS-Corsair-Xenon   Bash                                    jetzt
+● website-relaunch      2 Agents                                 1 min
+○ notes                 feature/import                          42 min
+```
+
+| Zähler | Bedeutung | Woran erkannt |
+|---|---|---|
+| **aktiv** | Claude arbeitet gerade | Der letzte Zug läuft noch (Tool-Aufruf offen, Subagent unterwegs) **und** das Transkript wurde innerhalb von `sessionActiveSeconds` (Standard 5 min) geschrieben |
+| **Frage** | Der Chat wartet auf dich | Ein `AskUserQuestion`/`ExitPlanMode`-Aufruf ist unbeantwortet, oder die letzte Antwort endet auf eine Frage |
+| **offen** | Offen, aber nichts passiert | Zug beendet ohne Frage — oder mitten im Zug stehen geblieben (Fenster zu, Rechner geschlafen, Session abgestürzt) |
+| **Agents** | Laufende Subagenten über alle Chats | `Agent`/`Task`-Aufrufe ohne Ergebnis |
+
+Ein Chat, der länger als `sessionOpenHours` (Standard 12 h) nicht angefasst
+wurde, fällt ganz aus der Liste. Die Sortierung ist nach Dringlichkeit:
+Fragen zuerst, dann arbeitende, dann liegengebliebene Chats.
+
+**Datenquelle:** dieselben lokalen Transkripte wie bei den Tokenzahlen
+(`~/.claude/projects/**/*.jsonl`, bei mehreren Profilen zusätzlich deren
+Verzeichnisse). Gelesen wird nur das **Ende** jeder Datei — der Zustand
+eines Chats steht in seinen letzten Zügen, und Transkripte werden schnell
+mehrere Megabyte groß. Es geht weiterhin nichts ins Netz.
+
+**Chat-Inhalt auf dem Display:** `showLastQuestion` ist das einzige Feld,
+das Text aus einer Unterhaltung anzeigt (die Frage selbst, gekürzt). Steht
+das Edge sichtbar auf dem Schreibtisch, kann `"showLastQuestion": false`
+sinnvoll sein — die Zähler funktionieren unabhängig davon. Mit
+`"sessionRows": 0` bleiben nur die Zähler übrig, mit
+`"showSessions": false` verschwindet der ganze Abschnitt.
+
+**Anders als bei den Tokenzahlen werden Profile hier zusammengezählt:**
+„drei Chats warten auf eine Antwort" stimmt unabhängig davon, unter welchem
+Login sie laufen. Jede Zeile trägt bei mehreren Profilen ein kleines Label
+mit dem Profilnamen.
+
+### Im Dashboard-Panel
+
+Dieselbe Übersicht gibt es als eigenes Panel der XeneonEdge-App:
+Menüleiste → **Widgets → Claude-Chats**. Die zugehörigen Felder in der
+`config.json` heißen `showClaudeSessions`, `claudeShowLastQuestion`,
+`claudeSessionRows`, `claudeSessionActiveSeconds` und
+`claudeSessionOpenHours`. Das Panel aktualisiert sich alle 20 Sekunden —
+häufiger als die Tokenzahlen, weil „dieser Chat fragt gerade etwas" nur
+nützlich ist, solange es noch stimmt.
 
 ## Mehrere Claude-Profile (z. B. privat + geschäftlich)
 
