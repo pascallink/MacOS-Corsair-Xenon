@@ -77,8 +77,9 @@ public struct BitbucketTargetPattern: Equatable {
 
     /// Parst ein Muster der Form `<projekt>/<ziel-branch>` oder
     /// `<projekt>/<repo>/<ziel-branch>`. Ein fuehrender Slash wird
-    /// geschluckt, umschliessende Leerzeichen werden abgeschnitten. Liefert
-    /// `nil` bei leerem Muster, leeren Segmenten oder einer falschen
+    /// geschluckt, danach wird jedes an `/` aufgeteilte Segment einzeln um
+    /// umschliessende Leerzeichen zugeschnitten. Liefert `nil` bei leerem
+    /// Muster, nach dem Zuschneiden leeren Segmenten oder einer falschen
     /// Segmentanzahl - stuerzt niemals ab.
     public static func parse(_ raw: String) -> BitbucketTargetPattern? {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,6 +89,7 @@ public struct BitbucketTargetPattern: Equatable {
         guard !trimmed.isEmpty else { return nil }
 
         let segments = trimmed.components(separatedBy: "/")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard segments.count == 2 || segments.count == 3 else { return nil }
         guard segments.allSatisfy({ !$0.isEmpty }) else { return nil }
 
