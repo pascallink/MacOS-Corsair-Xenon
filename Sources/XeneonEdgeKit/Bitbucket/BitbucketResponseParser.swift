@@ -37,8 +37,11 @@ public enum BitbucketResponseParser {
             return BitbucketPage(values: [], isLastPage: true, nextPageStart: nil)
         }
 
-        let rawValues = json["values"] as? [[String: Any]] ?? []
-        let values = rawValues.compactMap(parsePullRequest)
+        let rawValues = json["values"] as? [Any] ?? []
+        let values = rawValues.compactMap { entry -> BitbucketPullRequest? in
+            guard let object = entry as? [String: Any] else { return nil }
+            return parsePullRequest(object)
+        }
 
         let isLastPage = json["isLastPage"] as? Bool ?? true
         let nextPageStart = json["nextPageStart"] as? Int
@@ -69,7 +72,7 @@ public enum BitbucketResponseParser {
             targetBranch.removeFirst(branchPrefix.count)
         }
 
-        let reviewers = parseReviewers(raw["reviewers"] as? [[String: Any]] ?? [])
+        let reviewers = parseReviewers(raw["reviewers"] as? [Any] ?? [])
         let openTaskCount = (raw["properties"] as? [String: Any])?["openTaskCount"] as? Int
         let url = parseSelfLink(raw["links"] as? [String: Any])
         let updatedAt = parseUpdatedDate(raw["updatedDate"])
@@ -80,11 +83,13 @@ public enum BitbucketResponseParser {
                                      openTaskCount: openTaskCount, url: url, updatedAt: updatedAt)
     }
 
-    /// Uebersetzt die Reviewer-Liste. Ein Eintrag ohne `user.name` wird
-    /// ausgelassen, ohne den ganzen Pull Request zu verwerfen.
-    private static func parseReviewers(_ raw: [[String: Any]]) -> [BitbucketReviewer] {
-        raw.compactMap { entry in
-            guard let user = entry["user"] as? [String: Any],
+    /// Uebersetzt die Reviewer-Liste. Ein Eintrag ohne `user.name` oder ohne
+    /// die Objektform wird ausgelassen, ohne den ganzen Pull Request zu
+    /// verwerfen.
+    private static func parseReviewers(_ raw: [Any]) -> [BitbucketReviewer] {
+        raw.compactMap { rawEntry in
+            guard let entry = rawEntry as? [String: Any],
+                  let user = entry["user"] as? [String: Any],
                   let name = user["name"] as? String
             else { return nil }
 
@@ -98,9 +103,10 @@ public enum BitbucketResponseParser {
     }
 
     /// Uebersetzt `updatedDate` (Millisekunden seit 1970) in ein `Date`.
-    /// JSONSerialization liefert ganzzahlige Werte als `Int` und Werte mit
-    /// Nachkommastellen als `Double` - beide Faelle werden abgedeckt, sonst
-    /// waere `nil` das Ergebnis fuer den ueblichen Fall einer ganzen Zahl.
+    /// JSONSerialization liefert jede Zahl als `NSNumber`, deshalb glueckt
+    /// der `Double`-Zweig auch bei ganzen Zahlen. Der `Int`-Zweig bleibt nur
+    /// als Auffang fuer Werte, die sich nicht exakt als `Double` darstellen
+    /// lassen.
     private static func parseUpdatedDate(_ raw: Any?) -> Date? {
         if let millis = raw as? Double {
             return Date(timeIntervalSince1970: millis / 1000)
@@ -111,14 +117,18 @@ public enum BitbucketResponseParser {
         return nil
     }
 
-    /// Liest die URL aus dem ersten Eintrag von `links.self`. Fehlt sie,
-    /// wird der leere String geliefert - das verwirft den Pull Request
-    /// nicht.
+    /// Liest die URL aus dem ersten passenden Eintrag von `links.self`.
+    /// Ein Nicht-Objekt vor einem gueltigen Eintrag wird uebersprungen statt
+    /// die Suche abzubrechen. Fehlt ein gueltiger Eintrag ganz, wird der
+    /// leere String geliefert - das verwirft den Pull Request nicht.
     private static func parseSelfLink(_ links: [String: Any]?) -> String {
-        guard let selfLinks = links?["self"] as? [[String: Any]],
-              let first = selfLinks.first,
-              let href = first["href"] as? String
-        else { return "" }
-        return href
+        let selfLinks = links?["self"] as? [Any] ?? []
+        for rawEntry in selfLinks {
+            if let entry = rawEntry as? [String: Any],
+               let href = entry["href"] as? String {
+                return href
+            }
+        }
+        return ""
     }
 }
