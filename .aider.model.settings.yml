@@ -1,0 +1,12 @@
+# Modell-Vorgaben fuer die lokale Umsetzung (Skill lokale-umsetzung).
+- name: ollama/qwen2.5-coder:14b
+  # Ollama gibt Modellen ohne diese Angabe ein Fenster von 4096 Tokens - zu
+  # klein fuer Repo-Map plus Auftrag plus vollstaendige Dateiausgabe. Das
+  # Modell selbst traegt 32768 (ollama show qwen2.5-coder:14b).
+  extra_params:
+    num_ctx: 32768
+  # 14B trifft Diff-Formate nicht zuverlaessig, deshalb ganze Dateien. Das ist
+  # der Grund fuer die Zeilengrenze im Skill: was das Modell aendert, muss es
+  # komplett neu ausgeben.
+  edit_format: whole
+  use_repo_map: true
