@@ -154,4 +154,38 @@ import Foundation
                                                requiredApprovals: 1)
         #expect(overview.groups[0].toReview.count == 0)
     }
+
+    @Test func toReviewExcludesNeedsWorkReviewerStatus() {
+        let pr = makePullRequest(authorName: "jemand",
+                                 reviewers: [makeReviewer(name: "pascal", status: .needsWork)])
+        let overview = BitbucketOverview.build(author: [pr], reviewer: [pr], patterns: [makePattern()],
+                                               patternLabels: ["refi/*"], currentUser: "pascal",
+                                               requiredApprovals: 1)
+        #expect(overview.groups[0].toReview.count == 0)
+    }
+
+    @Test func toReviewIncludesUnapprovedReviewerStatus() {
+        let pr = makePullRequest(authorName: "jemand",
+                                 reviewers: [makeReviewer(name: "pascal", status: .unapproved)])
+        let overview = BitbucketOverview.build(author: [pr], reviewer: [pr], patterns: [makePattern()],
+                                               patternLabels: ["refi/*"], currentUser: "pascal",
+                                               requiredApprovals: 1)
+        #expect(overview.groups[0].toReview.count == 1)
+    }
+
+    @Test func requiredApprovalsIsClampedToAtLeastOne() {
+        let pr = makePullRequest(reviewers: [makeReviewer(status: .approved)], openTaskCount: 0)
+        let withZero = BitbucketOverview.build(author: [pr], reviewer: [], patterns: [makePattern()],
+                                               patternLabels: ["refi/*"], currentUser: "",
+                                               requiredApprovals: 0)
+        let withNegative = BitbucketOverview.build(author: [pr], reviewer: [], patterns: [makePattern()],
+                                                    patternLabels: ["refi/*"], currentUser: "",
+                                                    requiredApprovals: -1)
+        let withOne = BitbucketOverview.build(author: [pr], reviewer: [], patterns: [makePattern()],
+                                              patternLabels: ["refi/*"], currentUser: "",
+                                              requiredApprovals: 1)
+        #expect(withZero.groups[0].readyToMerge == 1)
+        #expect(withNegative.groups[0].readyToMerge == 1)
+        #expect(withOne.groups[0].readyToMerge == 1)
+    }
 }
