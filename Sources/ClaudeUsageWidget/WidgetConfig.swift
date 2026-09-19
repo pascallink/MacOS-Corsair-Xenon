@@ -15,6 +15,14 @@ struct WidgetConfig: Codable, Equatable {
     /// widget until you hit a limit once, then set what you reached.
     /// 0 = no ring, show plain numbers.
     var tokenBudgetPerBlock: Int = 0
+    /// Persoenliches Token-Budget pro Tagesfenster. Wie beim Blockbudget
+    /// nutzerkalibriert, da es keine veroeffentlichten Tokenzahlen je Plan
+    /// gibt. 0 = kein Balken, nur die Zahl.
+    var tokenBudgetPerDay: Int = 0
+    /// Persoenliches Token-Budget pro rollendem Wochenfenster. Wie beim
+    /// Blockbudget nutzerkalibriert, da es keine veroeffentlichten
+    /// Tokenzahlen je Plan gibt. 0 = kein Balken, nur die Zahl.
+    var tokenBudgetPerWeek: Int = 0
     /// Where on the Edge display the widget docks:
     /// topLeft | topRight | bottomLeft | bottomRight | center
     var corner: String = "bottomRight"
@@ -69,6 +77,8 @@ struct WidgetConfig: Codable, Equatable {
         let d = WidgetConfig()
         refreshSeconds = try c.decodeIfPresent(Double.self, forKey: .refreshSeconds) ?? d.refreshSeconds
         tokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .tokenBudgetPerBlock) ?? d.tokenBudgetPerBlock
+        tokenBudgetPerDay = try c.decodeIfPresent(Int.self, forKey: .tokenBudgetPerDay) ?? d.tokenBudgetPerDay
+        tokenBudgetPerWeek = try c.decodeIfPresent(Int.self, forKey: .tokenBudgetPerWeek) ?? d.tokenBudgetPerWeek
         corner = try c.decodeIfPresent(String.self, forKey: .corner) ?? d.corner
         margin = try c.decodeIfPresent(Double.self, forKey: .margin) ?? d.margin
         width = try c.decodeIfPresent(Double.self, forKey: .width) ?? d.width

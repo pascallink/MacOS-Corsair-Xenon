@@ -5,6 +5,27 @@ import Combine
 import Foundation
 import XeneonEdgeKit
 
+/// Eine Zeile der Limitanzeige (5 h / Tag / Woche).
+///
+/// `UsageWindow.Kind` deklariert nur `Equatable`, nicht `Hashable` (geprueft
+/// in ClaudeUsageModels.swift) - Identifiable braucht aber eine hashbare
+/// `id`. Deshalb `id` als `String` ueber `kind.rawValue` statt `kind`
+/// direkt, und die Hashable-Conformance NICHT nachtraeglich im Kit
+/// ergaenzen.
+struct LimitRow: Identifiable {
+    var id: String { kind.rawValue }
+    let kind: UsageWindow.Kind
+    let title: String
+    let tokens: Int
+    let budget: Int
+    /// Anteil des Budgets, 0.0 = leer. Nil, wenn kein Budget gesetzt ist
+    /// (budget <= 0). Bewusst NICHT auf 1.0 geklemmt - ein Fenster ueber dem
+    /// Budget ist eine Information, die die View sehen muss; sie klemmt die
+    /// Balkenbreite selbst beim Zeichnen.
+    let fraction: Double?
+    let resetText: String
+}
+
 final class UsageViewModel: ObservableObject {
     /// One entry per tracked profile. With no `claudeProfiles` configured
     /// this holds exactly one auto-detected profile, which is what keeps the
@@ -27,6 +48,17 @@ final class UsageViewModel: ObservableObject {
     private var cloudTimer: Timer?
     private var cloudEntries: [UUID: [ClaudeUsageEntry]] = [:]
     private var cloudSources: [(id: UUID, gistID: String)] = []
+
+    /// Nur aktive Profile - ein deaktiviertes Konto wird weder gelesen noch
+    /// gepollt noch angezeigt. Genau diese Stelle filtert, damit refresh()
+    /// und die Cloud-Quellenbestimmung nicht auseinanderlaufen.
+    /// ACHTUNG Sonderfall: eine LEERE claudeProfiles-Liste bedeutet
+    /// Auto-Erkennung eines Profils, nicht "keine Profile" - dieser
+    /// Unterschied wird NICHT hier behandelt, sondern an den Aufrufstellen
+    /// anhand von `config.claudeProfiles.isEmpty` unterschieden, weil
+    /// `activeProfiles` in beiden Faellen (kein Profil konfiguriert vs. alle
+    /// deaktiviert) gleichermassen leer waere.
+    private var activeProfiles: [ClaudeProfile] { ClaudeProfile.active(config.claudeProfiles) }
 
     func start() {
         refresh()
@@ -60,7 +92,8 @@ final class UsageViewModel: ObservableObject {
     /// profiles the top-level `cloudGistID` feeds the auto-detected profile;
     /// with profiles each one brings its own gist and the top-level field
     /// would be ambiguous, so it is ignored (loudly, not silently).
-    private static func cloudSources(for config: WidgetConfig) -> [(id: UUID, gistID: String)] {
+    private static func cloudSources(for config: WidgetConfig,
+                                      activeProfiles: [ClaudeProfile]) -> [(id: UUID, gistID: String)] {
         let topLevel = config.cloudGistID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !config.claudeProfiles.isEmpty else {
             return topLevel.isEmpty ? [] : [(autoProfileID, topLevel)]
@@ -69,7 +102,14 @@ final class UsageViewModel: ObservableObject {
             NSLog("XeneonEdge: cloudGistID is ignored while claudeProfiles is set — "
                 + "give the profile its own cloudGistID instead")
         }
-        return config.claudeProfiles.compactMap { profile in
+        // Nur aktive Profile pollen - ein deaktiviertes Konto darf keinen
+        // Gist-Poll ausloesen, jede Anfrage zaehlt gegen GitHubs Limit von
+        // 60 unauthentifizierten Anfragen pro Stunde und IP, und niemand
+        // sieht das Ergebnis. Sind alle Profile deaktiviert, ist die Liste
+        // leer und es wird NICHT auf die Auto-Erkennung zurueckgefallen -
+        // die Leerpruefung oben greift nur, wenn claudeProfiles selbst leer
+        // ist.
+        return activeProfiles.compactMap { profile in
             let gist = profile.cloudGistID.trimmingCharacters(in: .whitespacesAndNewlines)
             return gist.isEmpty ? nil : (profile.id, gist)
         }
@@ -80,7 +120,7 @@ final class UsageViewModel: ObservableObject {
         cloudTimer = nil
         cloudEntries = [:]
         cloudProfileIDs = []
-        cloudSources = Self.cloudSources(for: config)
+        cloudSources = Self.cloudSources(for: config, activeProfiles: activeProfiles)
         guard !cloudSources.isEmpty else { return }
 
         // Every poll hits one gist per source, so the floor scales with the
@@ -120,7 +160,16 @@ final class UsageViewModel: ObservableObject {
 
     func refresh() {
         let cloud = cloudEntries
-        let profiles = config.claudeProfiles
+        // config.claudeProfiles selbst (nicht activeProfiles) entscheidet,
+        // ob ueberhaupt Profile konfiguriert sind: leer heisst
+        // Auto-Erkennung eines Profils, wie bisher. Sind Profile
+        // konfiguriert, aber alle deaktiviert, waere activeProfiles
+        // ebenfalls leer - das darf NICHT auf die Auto-Erkennung
+        // zurueckfallen, sonst zeigt das Widget ausgerechnet das
+        // automatisch erkannte Standardkonto, das der Nutzer abgeschaltet
+        // hat. Deshalb die zwei Faelle unten sauber getrennt.
+        let configuredProfiles = config.claudeProfiles
+        let profiles = activeProfiles
         let sessionOptions = ClaudeSessionReader.Options(
             activeWindow: max(30, config.sessionActiveSeconds),
             openWindow: max(600, config.sessionOpenHours * 3_600)
@@ -128,16 +177,29 @@ final class UsageViewModel: ObservableObject {
         let wantsSessions = config.showSessions
         queue.async { [weak self] in
             guard let self else { return }
-            let sessions = wantsSessions
-                ? self.sessionReader.snapshot(for: profiles, options: sessionOptions)
-                : ClaudeSessionsSnapshot()
             let usages: [ClaudeUsageReader.ProfileUsage]
-            if profiles.isEmpty {
+            let sessions: ClaudeSessionsSnapshot
+            if configuredProfiles.isEmpty {
+                // Keine Profile konfiguriert: automatisch ein Profil
+                // erkennen, unveraendertes Verhalten von vorher.
+                sessions = wantsSessions
+                    ? self.sessionReader.snapshot(for: [], options: sessionOptions)
+                    : ClaudeSessionsSnapshot()
                 let snap = self.reader.snapshot(
                     additionalEntries: cloud[Self.autoProfileID] ?? [])
                 usages = [ClaudeUsageReader.ProfileUsage(id: Self.autoProfileID,
                                                          name: "", snapshot: snap)]
+            } else if profiles.isEmpty {
+                // Profile konfiguriert, aber alle deaktiviert: keine
+                // Snapshots, keine Sessions. sessionReader.snapshot(for: [])
+                // wuerde sonst auf die Auto-Erkennung zurueckfallen - genau
+                // das abgeschaltete Konto.
+                sessions = ClaudeSessionsSnapshot()
+                usages = []
             } else {
+                sessions = wantsSessions
+                    ? self.sessionReader.snapshot(for: profiles, options: sessionOptions)
+                    : ClaudeSessionsSnapshot()
                 usages = self.reader.snapshots(for: profiles, additionalEntries: cloud)
             }
             DispatchQueue.main.async {
@@ -202,6 +264,50 @@ final class UsageViewModel: ObservableObject {
         return plan.prefix(1).uppercased() + plan.dropFirst()
     }
 
+    /// Verbrauch je Limitfenster (5 h, Tag, Woche), in dieser Reihenfolge.
+    func limitRows(for snapshot: ClaudeUsageSnapshot) -> [LimitRow] {
+        let blockBudget = config.tokenBudgetPerBlock
+        let blockTok = blockTokens(snapshot)
+        let block = LimitRow(
+            kind: .block,
+            title: UsageWindow.Kind.block.title,
+            tokens: blockTok,
+            budget: blockBudget,
+            fraction: blockBudget > 0 ? Double(blockTok) / Double(blockBudget) : nil,
+            resetText: resetCountdown(snapshot)
+        )
+        return [block, limitRow(for: snapshot.day, budget: config.tokenBudgetPerDay),
+                limitRow(for: snapshot.week, budget: config.tokenBudgetPerWeek)]
+    }
+
+    /// Baut eine Limitzeile aus einem `UsageWindow` (Tag/Woche). Der 5-h-
+    /// Block hat kein `UsageWindow`, deshalb eigener Zweig in
+    /// `limitRows(for:)`.
+    private func limitRow(for window: UsageWindow, budget: Int) -> LimitRow {
+        let tokens = config.includeCacheReads ? window.totals.totalTokens : window.totals.billableTokens
+        // Anteil bewusst NICHT auf 1.0 geklemmt - ein Fenster ueber dem
+        // Budget ist eine Information, die die View sehen muss; sie klemmt
+        // die Balkenbreite selbst beim Zeichnen. `UsageWindow.fraction`
+        // klemmt ebenfalls nicht, im Gegensatz zum bestehenden
+        // `budgetFraction` fuer den 5-h-Ring, der unveraendert bleibt.
+        let fraction = budget > 0 ? window.fraction(of: budget, includeCacheReads: config.includeCacheReads) : nil
+        return LimitRow(
+            kind: window.kind,
+            title: window.kind.title,
+            tokens: tokens,
+            budget: budget,
+            fraction: fraction,
+            resetText: countdownText(window.remaining(at: Date()))
+        )
+    }
+
+    /// Gleicher Platzhalter wie `resetCountdown(_:)` ohne aktiven Block -
+    /// hier fuer Fenster ohne bekannten Reset-Zeitpunkt (z. B. leere Woche).
+    private func countdownText(_ remaining: TimeInterval?) -> String {
+        guard let remaining else { return "—" }
+        return UsageFormat.countdown(remaining)
+    }
+
     // Single-profile conveniences, kept so the existing layout reads the same.
     var blockTokens: Int { blockTokens(snapshot) }
     var budgetFraction: Double? { budgetFraction(snapshot) }
@@ -210,6 +316,7 @@ final class UsageViewModel: ObservableObject {
     var resetClockTime: String { resetClockTime(snapshot) }
     var modelName: String { modelName(snapshot) }
     var planName: String? { planName(snapshot) }
+    var limitRows: [LimitRow] { limitRows(for: snapshot) }
 
     /// The chats listed under the counters, capped by `sessionRows`.
     var sessionRows: [ClaudeSessionSummary] {
