@@ -187,7 +187,7 @@ struct WidgetView: View {
     private func limitBarSegment(_ fraction: Double?) -> some View {
         Group {
             if let fraction {
-                bar(fraction: fraction, color: limitRowColor(fraction))
+                bar(fraction: fraction, color: rowColor(fraction))
             } else {
                 Capsule().fill(Color.white.opacity(0.05)).frame(height: 6)
             }
@@ -197,14 +197,10 @@ struct WidgetView: View {
 
     // MARK: Limitzeilen (5 h / Tag / Woche): Einzelprofil-Layout
     //
-    // Schwellen 0.75/0.9 bewusst getrennt von `rowColor`/`gaugeColor`
-    // (0.7/0.9), die den 5-h-Ring bzw. die Mehrprofil-Kopfzeile faerben -
-    // keine gemeinsame Schwelle noetig, beide Stellen bleiben unveraendert.
-    private func limitRowColor(_ fraction: Double) -> Color {
-        if fraction >= 0.9 { return WidgetTheme.critical }
-        if fraction >= 0.75 { return WidgetTheme.warn }
-        return WidgetTheme.good
-    }
+    // Faerbung ueber `rowColor` statt ueber eigene Schwellen: die
+    // Limitzeilen stehen direkt unter dem 5-h-Ring, und derselbe
+    // Fuellstand darf nicht an einer Stelle noch `good` und an der
+    // anderen schon `warn` sein.
 
     private func limitRowView(_ row: LimitRow) -> some View {
         HStack(spacing: 8) {
@@ -213,7 +209,7 @@ struct WidgetView: View {
                 .foregroundColor(WidgetTheme.textSecondary)
                 .frame(width: 34, alignment: .leading)
             if let fraction = row.fraction {
-                bar(fraction: fraction, color: limitRowColor(fraction))
+                bar(fraction: fraction, color: rowColor(fraction))
             } else {
                 Spacer(minLength: 0)
             }
