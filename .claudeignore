@@ -1,0 +1,54 @@
+# Kontext-Ausschluesse fuer Claude Code (Token-Budget).
+# Alles hier ist generiert, binaer oder reproduzierbar.
+#
+# Einzelnes SwiftPM-Paket (Package.swift im Root), kein Monorepo - die Regeln
+# muessen deshalb nicht rekursiv (**/) greifen wie bei webkit-ext.
+
+# --- Abhaengigkeiten ---
+# node_modules/ ist ausschliesslich fuer commitlint da (siehe package.json),
+# kein Produktivcode-Abhaengigkeitsbaum.
+node_modules/
+
+# --- Lockfiles ---
+package-lock.json
+
+# --- Build- und Release-Artefakte ---
+.build/
+dist/
+.swiftpm/
+*.xcodeproj
+*.dSYM
+*.o
+*.a
+DerivedData/
+
+# --- Binaerdateien / Assets ---
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.ico
+**/*.svg
+**/*.pdf
+**/*.woff
+**/*.woff2
+**/*.ttf
+**/*.eot
+**/*.mp4
+**/*.mov
+**/*.gz
+
+# --- Logs und temporaere Dateien ---
+**/*.log
+**/logs/
+**/*.tmp
+**/*.swp
+**/*.bak
+**/.DS_Store
+**/Thumbs.db
+
+# --- Editor / VCS ---
+.git/
+**/.idea/
+**/.vscode/
