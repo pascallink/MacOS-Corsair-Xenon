@@ -119,7 +119,7 @@ struct WidgetView: View {
                     .foregroundColor(WidgetTheme.textSecondary)
             }
 
-            bar(fraction: fill, color: color)
+            limitBarsRow(main: fill, mainColor: color, limitRows: model.limitRows(for: snapshot))
 
             HStack(spacing: 8) {
                 if snapshot.activeBlock == nil {
@@ -162,6 +162,69 @@ struct WidgetView: View {
             }
         }
         .frame(height: 6)
+    }
+
+    // MARK: Mehrprofil-Zeile: Tag/Woche als schmale Zusatzbalken
+    //
+    // Die Zeilenhoehe je Profil darf nicht wachsen - deshalb kein eigener
+    // Textblock fuer Tag/Woche, sondern zwei schmale Balken NEBEN dem
+    // bestehenden 5-h-Balken, gleiche Zeile, gleiche Hoehe (6 pt).
+    // `limitRows` kommt in fester Reihenfolge [5 h, Tag, Woche] aus
+    // `UsageViewModel.limitRows(for:)` - Index 0 wird hier bewusst nicht
+    // verwendet, der 5-h-Balken kommt weiterhin aus `fill`/`color` der
+    // Kopfzeile.
+    private func limitBarsRow(main: Double, mainColor: Color, limitRows: [LimitRow]) -> some View {
+        let day = limitRows.count > 1 ? limitRows[1].fraction : nil
+        let week = limitRows.count > 2 ? limitRows[2].fraction : nil
+        return HStack(spacing: 4) {
+            bar(fraction: main, color: mainColor)
+                .frame(maxWidth: .infinity)
+            limitBarSegment(day)
+            limitBarSegment(week)
+        }
+    }
+
+    private func limitBarSegment(_ fraction: Double?) -> some View {
+        Group {
+            if let fraction {
+                bar(fraction: fraction, color: limitRowColor(fraction))
+            } else {
+                Capsule().fill(Color.white.opacity(0.05)).frame(height: 6)
+            }
+        }
+        .frame(width: 30)
+    }
+
+    // MARK: Limitzeilen (5 h / Tag / Woche): Einzelprofil-Layout
+    //
+    // Schwellen 0.75/0.9 bewusst getrennt von `rowColor`/`gaugeColor`
+    // (0.7/0.9), die den 5-h-Ring bzw. die Mehrprofil-Kopfzeile faerben -
+    // keine gemeinsame Schwelle noetig, beide Stellen bleiben unveraendert.
+    private func limitRowColor(_ fraction: Double) -> Color {
+        if fraction >= 0.9 { return WidgetTheme.critical }
+        if fraction >= 0.75 { return WidgetTheme.warn }
+        return WidgetTheme.good
+    }
+
+    private func limitRowView(_ row: LimitRow) -> some View {
+        HStack(spacing: 8) {
+            Text(row.title)
+                .font(.system(size: 11))
+                .foregroundColor(WidgetTheme.textSecondary)
+                .frame(width: 34, alignment: .leading)
+            if let fraction = row.fraction {
+                bar(fraction: fraction, color: limitRowColor(fraction))
+            } else {
+                Spacer(minLength: 0)
+            }
+            Text(UsageViewModel.tokenString(row.tokens))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(WidgetTheme.textPrimary)
+            Text(row.resetText)
+                .font(.system(size: 10))
+                .foregroundColor(WidgetTheme.textSecondary)
+        }
     }
 
     // MARK: Left: token ring / 5h window
@@ -225,6 +288,11 @@ struct WidgetView: View {
                           + UsageViewModel.tokenString(model.snapshot.activeBlock?.totals.outputTokens ?? 0),
                       detail: "Cache "
                           + UsageViewModel.tokenString(model.snapshot.activeBlock?.totals.cacheReadTokens ?? 0))
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(model.limitRows) { row in
+                    limitRowView(row)
+                }
+            }
         }
     }
 
