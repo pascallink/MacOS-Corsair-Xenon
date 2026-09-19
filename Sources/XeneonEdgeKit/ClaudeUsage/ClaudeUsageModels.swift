@@ -137,6 +137,100 @@ public struct UsageBlock: Equatable {
     }
 }
 
+// MARK: - Limit windows (day / rolling week)
+
+/// A time window with aggregated totals, used to show usage against a plan
+/// limit. This sits next to `UsageBlock` rather than replacing it: the 5h
+/// block is anchor-based (its start snaps to the full hour after a pause in
+/// activity), while a `UsageWindow` is either a calendar day or a plain
+/// gleitendes (rolling) interval. Merging both ideas into one type would be
+/// wrong, since "block start" and "window start" answer different questions.
+public struct UsageWindow: Equatable {
+    public enum Kind: String, Equatable {
+        case block
+        case day
+        case week
+
+        public var title: String {
+            switch self {
+            case .block: return "5 h"
+            case .day: return "Tag"
+            case .week: return "Woche"
+            }
+        }
+    }
+
+    public let kind: Kind
+    public let start: Date
+    public let end: Date
+    public var totals = UsageTotals()
+    /// Zeitpunkt, an dem das Limit fuer dieses Fenster wieder frei wird.
+    /// Nil, wenn dafuer keine Eintraege vorliegen (z. B. leere Woche).
+    public var resetsAt: Date?
+
+    public init(kind: Kind, start: Date, end: Date, totals: UsageTotals = UsageTotals(),
+                resetsAt: Date? = nil) {
+        self.kind = kind
+        self.start = start
+        self.end = end
+        self.totals = totals
+        self.resetsAt = resetsAt
+    }
+
+    /// Anteil des verbrauchten Budgets, 0.0 = leer. Nil, wenn kein Budget
+    /// bekannt ist. Nicht nach oben geklemmt - das macht der Aufrufer beim
+    /// Zeichnen des Balkens.
+    public func fraction(of budget: Int, includeCacheReads: Bool) -> Double? {
+        guard budget > 0 else { return nil }
+        let tokens = includeCacheReads ? totals.totalTokens : totals.billableTokens
+        return Double(tokens) / Double(budget)
+    }
+
+    /// Verbleibende Zeit bis zum Reset. Nil, wenn `resetsAt` unbekannt ist.
+    public func remaining(at now: Date) -> TimeInterval? {
+        guard let resetsAt else { return nil }
+        return max(0, resetsAt.timeIntervalSince(now))
+    }
+
+    /// Kalendertag von `now` in `calendar`, von lokaler Mitternacht bis zur
+    /// naechsten lokalen Mitternacht. Zaehlt Eintraege mit
+    /// `start <= timestamp < end`.
+    public static func day(from entries: [ClaudeUsageEntry], now: Date,
+                           calendar: Calendar = .current) -> UsageWindow {
+        let start = calendar.startOfDay(for: now)
+        let end = calendar.date(byAdding: .day, value: 1, to: start)
+            ?? start.addingTimeInterval(24 * 60 * 60)
+
+        var window = UsageWindow(kind: .day, start: start, end: end, resetsAt: end)
+        for entry in entries where entry.timestamp >= start && entry.timestamp < end {
+            window.totals.add(entry)
+        }
+        return window
+    }
+
+    /// Rollendes 7-Tage-Fenster bis `now`. Zaehlt Eintraege mit
+    /// `timestamp > start && timestamp <= now` - das Fenster rollt, ein
+    /// Eintrag genau auf der Kante (vor genau 7 Tagen) ist bereits
+    /// herausgerollt.
+    public static func week(from entries: [ClaudeUsageEntry], now: Date) -> UsageWindow {
+        let start = now.addingTimeInterval(-7 * 24 * 60 * 60)
+
+        var window = UsageWindow(kind: .week, start: start, end: now)
+        var oldest: Date?
+        for entry in entries where entry.timestamp > start && entry.timestamp <= now {
+            window.totals.add(entry)
+            if oldest == nil || entry.timestamp < oldest! {
+                oldest = entry.timestamp
+            }
+        }
+        // Reset ist der Zeitpunkt, an dem der aelteste beruecksichtigte
+        // Eintrag aus dem 7-Tage-Fenster herausrollt und damit wieder Budget
+        // frei wird. Ohne Eintraege gibt es nichts, das rollt.
+        window.resetsAt = oldest.map { $0.addingTimeInterval(7 * 24 * 60 * 60) }
+        return window
+    }
+}
+
 // MARK: - Snapshot for the UI
 
 public struct ClaudeUsageSnapshot: Equatable {
@@ -144,6 +238,11 @@ public struct ClaudeUsageSnapshot: Equatable {
     public var activeBlock: UsageBlock?
     /// Everything since local midnight.
     public var today = UsageTotals()
+    /// Kalendertag als Limitfenster (dieselbe Zeitspanne wie `today`, aber
+    /// samt Reset-Zeitpunkt fuer die Limitanzeige).
+    public var day = UsageWindow(kind: .day, start: .distantPast, end: .distantPast)
+    /// Rollendes 7-Tage-Fenster als Limitfenster.
+    public var week = UsageWindow(kind: .week, start: .distantPast, end: .distantPast)
     /// Model id of the most recent assistant reply (e.g. "claude-opus-5").
     public var latestModel: String?
     /// Plan from ~/.claude/.credentials.json (e.g. "pro", "max") — the only

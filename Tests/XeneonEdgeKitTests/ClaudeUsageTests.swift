@@ -129,6 +129,88 @@ import Testing
     }
 }
 
+@Suite struct UsageWindowTests {
+    private var berlin: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Berlin")!
+        return calendar
+    }
+
+    private func entry(at date: Date, tokens: Int = 10) -> ClaudeUsageEntry {
+        ClaudeUsageEntry(timestamp: date, model: "claude-opus-5", inputTokens: tokens,
+                         outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0)
+    }
+
+    @Test func dayWindowExcludesYesterdayAndSetsNextMidnightAsReset() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 8, day: 23,
+                                                      hour: 14, minute: 0))!
+        let startOfToday = calendar.startOfDay(for: now)
+        let entryEarlyToday = entry(at: startOfToday.addingTimeInterval(60), tokens: 5)
+        let entryLaterToday = entry(at: now, tokens: 7)
+        let entryJustBeforeMidnight = entry(at: startOfToday.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryEarlyToday, entryLaterToday, entryJustBeforeMidnight],
+                                     now: now, calendar: calendar)
+
+        #expect(window.kind == .day)
+        #expect(window.totals.inputTokens == 12)
+        #expect(window.totals.entryCount == 2)
+        let expectedReset = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+        #expect(window.resetsAt == expectedReset)
+    }
+
+    @Test func weekWindowIncludesSixDaysExcludesEightDaysAndTheSevenDayEdge() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let sixDaysAgo = now.addingTimeInterval(-6 * 24 * 60 * 60)
+        let eightDaysAgo = now.addingTimeInterval(-8 * 24 * 60 * 60)
+        let exactlySevenDaysAgo = now.addingTimeInterval(-7 * 24 * 60 * 60)
+
+        let window = UsageWindow.week(from: [
+            entry(at: sixDaysAgo, tokens: 3),
+            entry(at: eightDaysAgo, tokens: 100),
+            entry(at: exactlySevenDaysAgo, tokens: 200),
+        ], now: now)
+
+        #expect(window.kind == .week)
+        #expect(window.totals.inputTokens == 3)
+        #expect(window.totals.entryCount == 1)
+    }
+
+    @Test func weekWindowResetsAtOldestConsideredEntryPlusSevenDays() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let sixDaysAgo = now.addingTimeInterval(-6 * 24 * 60 * 60)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+
+        let window = UsageWindow.week(from: [entry(at: sixDaysAgo), entry(at: threeDaysAgo)],
+                                      now: now)
+
+        #expect(window.resetsAt == sixDaysAgo.addingTimeInterval(7 * 24 * 60 * 60))
+    }
+
+    @Test func emptyWindowHasNoTokensNoResetAndNoFraction() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let window = UsageWindow.week(from: [], now: now)
+
+        #expect(window.totals.totalTokens == 0)
+        #expect(window.resetsAt == nil)
+        #expect(window.fraction(of: 0, includeCacheReads: false) == nil)
+    }
+
+    @Test func fractionUsesBillableTokensByDefaultAndTotalTokensWithCacheReads() {
+        var totals = UsageTotals()
+        totals.inputTokens = 30
+        totals.outputTokens = 20
+        totals.cacheReadTokens = 25
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, totals: totals)
+
+        // 50 billable tokens of a 100 budget.
+        #expect(window.fraction(of: 100, includeCacheReads: false) == 0.5)
+        // 75 total tokens (including cache reads) of a 100 budget.
+        #expect(window.fraction(of: 100, includeCacheReads: true) == 0.75)
+    }
+}
+
 @Suite struct CloudUsageFetcherTests {
     private func gistLine(timestamp: String, model: String = "claude-opus-5",
                           input: Int = 10, output: Int = 20,
