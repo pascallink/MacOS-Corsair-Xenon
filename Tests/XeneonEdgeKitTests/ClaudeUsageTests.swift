@@ -893,6 +893,48 @@ import Testing
         #expect(decoded.claudeProfiles[0].name == "claude-work")
         #expect(decoded.claudeProfiles[0].configDir == "~/.claude-work")
         #expect(decoded.claudeProfiles[0].cloudGistID == "")
+        // Die Kurzform bleibt gueltig und ist standardmaessig aktiv.
+        #expect(decoded.claudeProfiles[0].enabled == true)
+    }
+
+    /// Bestehende Konfigurationen ohne `enabled` verhalten sich unveraendert:
+    /// das Profil bleibt aktiv.
+    @Test func profileWithoutEnabledDecodesToEnabled() throws {
+        let json = #"{"claudeProfiles": [{"name": "Privat", "configDir": "~/.claude"}]}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles[0].enabled == true)
+    }
+
+    /// `"enabled": false` schaltet ein Profil ab, ohne seine Konfiguration
+    /// zu verlieren.
+    @Test func profileWithEnabledFalseDecodesToDisabled() throws {
+        let json = #"{"claudeProfiles": [{"name": "Team", "configDir": "~/.claude-team", "enabled": false}]}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles[0].enabled == false)
+        #expect(decoded.claudeProfiles[0].name == "Team")
+        #expect(decoded.claudeProfiles[0].configDir == "~/.claude-team")
+    }
+
+    /// `active(_:)` filtert deaktivierte Profile heraus und erhaelt die
+    /// Reihenfolge der uebrigen.
+    @Test func activeFiltersDisabledProfilesAndKeepsOrder() {
+        let max = ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: true)
+        let team = ClaudeProfile(name: "Team", configDir: "~/.claude-team", enabled: false)
+        let pro = ClaudeProfile(name: "Pro", configDir: "~/.claude-pro", enabled: true)
+
+        let active = ClaudeProfile.active([max, team, pro])
+        #expect(active.count == 2)
+        #expect(active[0].name == "Max")
+        #expect(active[1].name == "Pro")
+    }
+
+    /// Round-trip: ein deaktiviertes Profil bleibt nach Encode/Decode
+    /// deaktiviert.
+    @Test func disabledProfileSurvivesEncodeDecodeRoundTrip() throws {
+        let profile = ClaudeProfile(name: "Team", configDir: "~/.claude-team", enabled: false)
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(ClaudeProfile.self, from: data)
+        #expect(decoded.enabled == false)
     }
 
     @Test func profileTildeIsExpanded() {
