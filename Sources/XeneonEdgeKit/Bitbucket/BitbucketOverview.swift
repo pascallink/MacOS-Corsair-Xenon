@@ -94,10 +94,15 @@ public struct BitbucketOverview: Equatable {
                 }
                 mine = aggregate(minePullRequests)
 
+                // Nur `.unapproved` ist "Review an mir" - abarbeitbar durch
+                // den Nutzer. `.approved` heisst erledigt, `.needsWork`
+                // heisst der Ball liegt beim Autor: in beiden Faellen gibt
+                // es fuer den Nutzer nichts zu tun, der Pull Request soll
+                // also nicht dauerhaft in der Kennzahl haengen bleiben.
                 let toReviewPullRequests = prs.filter { pr in
                     guard !isCurrentUser(pr.authorName, lowerCurrentUser: lowerCurrentUser) else { return false }
                     return pr.reviewers.contains { reviewerEntry in
-                        reviewerEntry.status != .approved
+                        reviewerEntry.status == .unapproved
                             && isCurrentUser(reviewerEntry.name, lowerCurrentUser: lowerCurrentUser)
                     }
                 }
