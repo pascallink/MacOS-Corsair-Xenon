@@ -1,16 +1,32 @@
 name: Build
 
+# Die vier Schritte der Kette aus CLAUDE.md, auf einem macOS-Runner:
+# swift build -> swift test -> Release-Build -> App-Bundle. Die CI ist die
+# Zweitmeinung; gruen wird lokal hergestellt, nicht hier.
+#
+# Trigger bewusst nur develop plus Pull Requests, nicht jeder Branch-Push:
+# sonst laeuft derselbe Commit zweimal auf macos-latest, und macOS-Minuten
+# rechnet GitHub zehnfach ab. Ein Branch ohne PR braucht keinen Lauf.
+#
+# swift test statt ./Scripts/test.sh ist Absicht: der Runner hat ein volles
+# Xcode, dort faellt das Skript ohnehin auf genau diesen Aufruf zurueck. Der
+# CLT-Pfad des Skripts laeuft deshalb nur lokal - siehe .github/TESTS.md.
+
 on:
   push:
-    branches: ["**"]
-  pull_request:
+    branches: [develop]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
   build:
     name: swift build & test (macOS)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Swift version
         run: swift --version
       - name: Build (debug)
@@ -22,7 +38,7 @@ jobs:
       - name: Bundle app
         run: ./Scripts/bundle-app.sh release
       - name: Upload app artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: XeneonEdge-macOS
           path: |
