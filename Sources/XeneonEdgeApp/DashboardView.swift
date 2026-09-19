@@ -524,9 +524,12 @@ struct ClaudeUsagePanel: View {
         let blockTokens = snapshot.activeBlock?.totals.billableTokens ?? 0
         let blockBudget = configStore.config.claudeTokenBudgetPerBlock
         let blockFraction: Double? = blockBudget > 0 ? Double(blockTokens) / Double(blockBudget) : nil
+        // Derselbe Platzhalter wie bei Tag und Woche: der Hinweis auf die
+        // fehlende Session steht bereits im Kopfblock des Panels, und ein
+        // ganzer Satz in dieser schmalen Zeile verdraengt den Balken.
         let blockReset = snapshot.activeBlock.map {
             UsageFormat.countdown($0.remaining(at: Date()))
-        } ?? "keine aktive Session"
+        } ?? "—"
         let blockRow = ClaudeLimitRow(id: "block", title: UsageWindow.Kind.block.title,
                                       tokens: blockTokens, fraction: blockFraction,
                                       resetText: blockReset)
@@ -564,6 +567,8 @@ struct ClaudeUsagePanel: View {
             Text(row.resetText)
                 .font(.system(size: 11))
                 .foregroundColor(EdgeTheme.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
         }
     }
 

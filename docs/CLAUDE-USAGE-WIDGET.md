@@ -54,11 +54,16 @@ Limitanzeige die sichere Richtung ist.
 
 1. **Panel im XeneonEdge-Dashboard (integriert):** In der Menüleiste der
    XeneonEdge-App → **Widgets → Claude-Nutzung** einschalten. Das
-   „Claude“-Panel erscheint sofort in der mittleren Spalte (Ring,
-   Reset-Countdown, Kosten, Modell-Badge) — kein Neustart, kein Editieren
-   von JSON. Optional `"claudeTokenBudgetPerBlock"` in der `config.json`
-   setzen (siehe unten), damit der Ring den Budget-Verbrauch statt der Zeit
-   zeigt; danach „Konfiguration neu laden“ wählen.
+   „Claude“-Panel erscheint sofort in der mittleren Spalte (Ring, die drei
+   Limitzeilen für 5 h, Tag und Woche, Reset-Countdown, Kosten,
+   Modell-Badge) — kein Neustart, kein Editieren von JSON. Optional
+   `"claudeTokenBudgetPerBlock"`, `"claudeTokenBudgetPerDay"` und
+   `"claudeTokenBudgetPerWeek"` in der `config.json` setzen (siehe unten):
+   das erste lässt den Ring den Budget-Verbrauch statt der Zeit zeigen, die
+   beiden anderen schalten die Balken für Tag und rollende Woche frei. `0`
+   (Standard) heißt jeweils: kein Balken für dieses Fenster, Zahl und Reset
+   stehen trotzdem da. Die drei Werte werden unabhängig voneinander
+   kalibriert. Danach „Konfiguration neu laden“ wählen.
 2. **Eigenständiges Floating-Widget** (`ClaudeUsageWidget.app`) — z. B. wenn das
    große Dashboard aus ist und das Edge als normaler Monitor läuft. Beide
    können auch parallel laufen.
