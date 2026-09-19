@@ -107,7 +107,7 @@ Geraet verifiziert.
 
 ## Workflow & QA-Regeln
 
-Kette je Aufgabe: lokales Modell setzt um -> Opus reviewt -> lokales Modell
+Kette je Aufgabe: lokales Modell setzt um -> Sonnet reviewt -> lokales Modell
 korrigiert. Umsetzung und Korrektur laufen ueber den Skill
 `.claude/skills/lokale-umsetzung/` (aider + `ollama/qwen2.5-coder:14b`), Opus
 zerlegt in Micro-Tasks, bewertet den Diff und verantwortet das Ergebnis. Die
@@ -121,11 +121,11 @@ Ausgaberegeln, das Micro-Task-Format und die Zuordnung der Subagents unter
   `TouchDriver.swift`) oder mehr als eine Datei je Befund: Eskalation an den
   Subagenten `umsetzer` (Sonnet).
 - **Subtask-Abschluss:** jede Umsetzung endet verpflichtend mit dem
-  Review-Prompt (Stufe 1) fuer Opus.
-- **QA & Review (Opus):** prueft Code-Logik, macOS-/Swift-Konformitaet
+  Review-Prompt (Stufe 1) fuer den `reviewer`.
+- **QA & Review (Sonnet):** prueft Code-Logik, macOS-/Swift-Konformitaet
   (SwiftPM-Targets, Entitlements, IOKit-/DDC-Zugriffe, Thread-Sicherheit),
   Tests und Sicherheit; Ergebnis als Stufe-1-Fliesstext, kein JSON-Bericht.
-- **Korrektur-Routing (Opus-Abschluss):** Opus haengt 0, 1 oder 2 Stufe-2-
+- **Korrektur-Routing (Review-Abschluss):** der `reviewer` haengt 0, 1 oder 2 Stufe-2-
   Prompts an, je Prompt genau eine Zieldatei. Jeder Befund geht zuerst lokal;
   bei Eskalation nur `STYLE`/`MINOR` an Haiku (`korrektur-style`), alles
   andere an Sonnet (`korrektur-logik`).

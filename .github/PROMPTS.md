@@ -1,7 +1,7 @@
 # Prompt-Vertrag fuer Modell-Uebergaben
 
 Feste Vorlagen fuer die Uebergabe zwischen Sessions: das lokale Modell setzt um
-und korrigiert, Opus reviewt. Prosa-Prompts driften und kosten Tokens - die Struktur steht
+und korrigiert, Sonnet reviewt. Prosa-Prompts driften und kosten Tokens - die Struktur steht
 deshalb genau einmal hier, nicht in der Root-`CLAUDE.md`. Wer wann uebergibt,
 steht dort ("Workflow & QA-Regeln"). Das Planungstemplate verweist auf diese
 Datei: [`.github/PLAN.template.md`](PLAN.template.md). Umsetzung und Korrektur
@@ -95,7 +95,7 @@ Constraints:
 - Repo- und Test-Kontext-Regeln bleiben bindend, auch wenn der Auftrag sie
   nicht wiederholt.
 
-## Stufe 1 - Review-Ergebnis (Opus)
+## Stufe 1 - Review-Ergebnis (Sonnet)
 
 Eingabe: Diff gegen `develop`, PR-Titel, PR-Beschreibung, Branch und Head-SHA.
 Ausgabe: Markdown-Fliesstext, kein JSON-Bericht.
@@ -240,13 +240,14 @@ Vorgaben fuer den Code (bindend):
 `.claude/agents/` haelt je Stufe einen Agenten, das Frontmatter setzt Modell
 und Werkzeuge, der Rumpf die Rolle. Umsetzung und Korrektur laufen im
 Normalfall lokal - die beiden Korrektur-Agenten und der `umsetzer` sind
-Eskalationspfad, nicht erste Wahl. Nur das Review ist unveraendert Opus.
+Eskalationspfad, nicht erste Wahl. Das Review laeuft als einziger Schritt
+immer ueber einen Agenten, auf Sonnet.
 
 | Stufe | Ziel | Modell | Zustaendig fuer |
 | --- | --- | --- | --- |
 | 0 Umsetzung | Skill `lokale-umsetzung` | Qwen 14B lokal | Micro-Tasks eines Subtasks, eine Datei je Lauf |
 | 0 Eskalation | `umsetzer` | Sonnet | Subtask ueber der Eignungsgrenze oder zweimal lokal gescheitert |
-| 1 Review | `reviewer` | Opus | Stufe 1 plus 0 bis 2 Folge-Prompts, ohne Edit |
+| 1 Review | `reviewer` | Sonnet | Stufe 1 plus 0 bis 2 Folge-Prompts, ohne Edit |
 | 2 Korrektur | Skill `lokale-umsetzung` | Qwen 14B lokal | jeder Befund, zerlegt in Micro-Tasks |
 | 2 Eskalation | `korrektur-style` | Haiku | `STYLE`/`MINOR`, eine Datei, kein Verhalten |
 | 2 Eskalation | `korrektur-logik` | Sonnet | alles andere, Testanpassung erlaubt |
