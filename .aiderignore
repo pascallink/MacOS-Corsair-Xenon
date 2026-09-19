@@ -1,0 +1,21 @@
+# Dateien, die aider weder in die Repo-Map noch in den Chat nimmt.
+#
+# Die beiden grossen Quelldateien liegen ueber der Eignungsgrenze des Skills
+# lokale-umsetzung (whole-Format, ~500 Zeilen). Steht ihr Name in einem
+# Kommentar oder in der Modellantwort, wertet aider das als Dateierwaehnung,
+# --yes fuegt sie hinzu, verwirft die fertige Ausgabe und startet eine zweite
+# Runde mit 600+ Zeilen im Kontext. Hier ausgeschlossen sind sie nicht
+# erwaehnbar - und wer sie aendern muss, delegiert ohnehin nicht lokal.
+Sources/XeneonEdgeApp/DashboardView.swift
+Sources/XeneonEdgeKit/Touch/TouchDriver.swift
+
+# Tests und Doku schreibt das lokale Modell nicht (siehe PROMPTS.md,
+# "Micro-Task") - sie kosten nur Repo-Map-Tokens.
+Tests/
+docs/
+.github/
+.claude/
+
+# Build- und Auslieferungsartefakte, nie Ziel eines Micro-Tasks.
+.build/
+dist/

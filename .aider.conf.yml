@@ -1,0 +1,27 @@
+# Aider-Vorgaben fuer die lokale Umsetzung (Skill lokale-umsetzung).
+# Zweck: der Aufruf aus dem Skill bleibt kurz und laeuft nicht in eine
+# interaktive Rueckfrage - mit --yes beantwortet aider jede davon mit "ja",
+# auch "Install playwright?" oder "Add file to the chat?". Siehe .aiderignore.
+#
+# Das Modell steht bewusst NICHT hier, sondern im Aufruf
+# (--model ollama/qwen2.5-coder:14b) - eine Quelle, keine Doppelpflege.
+
+# litellm braucht die Adresse des lokalen Ollama-Servers explizit,
+# sonst warnt aider "OLLAMA_API_BASE: Not set" und fragt zurueck.
+set-env:
+  - OLLAMA_API_BASE=http://127.0.0.1:11434
+
+# "Unknown context window size and costs" gilt fuer jedes Ollama-Modell und
+# ist hier beantwortet (.aider.model.settings.yml).
+show-model-warnings: false
+
+# Herkunft steht im Commit-Body, den die aufrufende Sitzung beim Amend setzt.
+# Ohne diese beiden Zeilen haengt aider " (aider)" an Author und Committer und
+# verbiegt damit git log --author.
+attribute-author: false
+attribute-committer: false
+
+# Keine URL-Erkennung: eine Beispiel-URL im Auftrag ("Erwartetes Verhalten")
+# wuerde sonst mit --yes gescrapt - und dafuer installiert aider ungefragt
+# Playwright. Das Modell braucht keine Webinhalte, nur den Auftragstext.
+detect-urls: false

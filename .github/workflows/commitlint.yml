@@ -1,0 +1,36 @@
+name: Commit Convention
+
+# Prueft die Commits eines Pull Requests gegen commitlint.config.js:
+# <typ>(<scope>): <Betreff>. Erlaubte Scopes kommen aus den Ordnern unter
+# Sources/, ein neues Target braucht hier keine Aenderung. Merge-Commits
+# ignoriert commitlint von sich aus.
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install commitlint
+        run: npm install
+
+      - name: Lint commit messages
+        run: >-
+          npx commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose

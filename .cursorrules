@@ -1,0 +1,18 @@
+# MacOS-Corsair-Xenon - Regeln fuer KI-Assistenten
+# Verbindliche Quelle ist CLAUDE.md, dies ist der Auszug fuer Cursor.
+
+Local First: lokal bauen und testen, Push nur nach Freigabe durch Pascal.
+Deutsch in Kommentaren und UI-Texten, ohne Umlaute (ue, ae, oe, ss).
+
+## Tests
+- Nur Command Line Tools, kein Xcode: kein xcodebuild, kein XCTest.
+- Tests nutzen swift-testing (import Testing) - Testing.framework liegt den
+  CLT bei, XCTest nicht.
+- Ausfuehren nur ueber ./Scripts/test.sh, waehrend der Arbeit mit
+  --filter <Suite>.
+- Vor dem finalen Commit einmal die CI-Kette: swift build && ./Scripts/test.sh
+  && swift build -c release && ./Scripts/bundle-app.sh release.
+
+## Commits
+<typ>(<scope>): <Betreff im Imperativ, ohne Punkt>, Header max. 72 Zeichen.
+Typen: feat fix refactor test docs chore build ci. Ein Commit, ein Scope.
