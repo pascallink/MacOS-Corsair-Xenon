@@ -1,0 +1,53 @@
+name: AI Build Checker
+
+# Baut NICHTS selbst. Haengt sich an "Build" und wird erst aktiv, wenn dieser
+# Lauf fehlschlaegt: laedt das Log des fehlgeschlagenen Jobs, laesst das Ende
+# analysieren und postet das Ergebnis in den zugehoerigen PR.
+#
+# Der Job laeuft auf ubuntu-latest, obwohl der Build selbst macOS braucht - er
+# liest nur ein Log und ruft eine API, keine Swift-Toolchain noetig. macOS-
+# Minuten rechnet GitHub zehnfach ab, das waere hier reine Verschwendung.
+#
+# workflow_run laeuft immer in der Version des Default-Branch (develop) und mit
+# einem Token, das schreiben darf - deshalb funktioniert der Kommentar auch bei
+# PRs aus Forks, wo der Build selbst kein Schreibrecht hat. Umgekehrt wirkt
+# jede Aenderung hier erst, wenn sie auf develop liegt.
+
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read # Job-Logs des ausloesenden Laufs lesen
+  pull-requests: write # Kommentar schreiben
+
+jobs:
+  explain:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Fehler analysieren (Haiku)
+        id: analyse
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node Scripts/ci/explain-build-failure.js
+
+      - name: Analyse als PR-Kommentar posten
+        if: steps.analyse.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr comment "${{ steps.analyse.outputs.pr }}" --body-file analysis.md

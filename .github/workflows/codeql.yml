@@ -1,0 +1,53 @@
+name: CodeQL
+
+# Code-Scanning als "advanced setup": nur so laeuft die Analyse auf einem
+# macOS-Runner mit unserer eigenen Build-Zeile. Swift ist eine compilierte
+# Sprache - CodeQL sieht nur, was waehrend eines echten Builds uebersetzt
+# wird, und der braucht hier macOS samt IOKit/AppKit. Details in
+# .github/CI.md.
+#
+# build-mode: manual statt autobuild, weil dieses Repo kein Xcode-Projekt hat
+# und ausschliesslich mit "swift build" gebaut wird (siehe CLAUDE.md,
+# Abschnitt Toolchain). Autobuild wuerde zuerst nach xcodebuild suchen.
+
+on:
+  push:
+    branches: [develop]
+  pull_request: {}
+  schedule:
+    # Wochenlauf, damit neue Queries auch ohne Push auf den Bestand treffen.
+    - cron: '17 3 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyse
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      actions: read
+      # Ohne dieses Recht kann der Lauf die SARIF-Datei nicht hochladen.
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: CodeQL initialisieren
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+          config-file: ./.github/codeql-config.yml
+
+      # Dieselbe Zeile wie in build.yml. Schlaegt sie fehl, ist der Build
+      # kaputt und nicht die Analyse - dann ist build.yml der Ort dafuer.
+      - name: Build (debug)
+        run: swift build
+
+      - name: Analysieren
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:swift"

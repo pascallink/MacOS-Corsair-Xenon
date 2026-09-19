@@ -25,8 +25,8 @@ Ziel-Plattform macOS 13+, ein einziges `Package.swift` im Root.
 | `Sources/XeneonEdgeApp/` | `app` | Vollbild-Dashboard fuer das Edge (SwiftUI/AppKit) |
 | `Sources/ClaudeUsageWidget/` | `widget` | Menueleisten-Widget fuer Claude-Session-Kosten |
 | `Sources/xeneonctl/` | `ctl` | CLI: Geraetesteuerung ohne GUI-App |
-| `Scripts/` | `scripts` | Build-, Test- und Bundle-Skripte |
-| `.github/workflows/` | `ci` | Build- und Commitlint-Workflows - Details in [`.github/CI.md`](.github/CI.md) |
+| `Scripts/` | `scripts` | Build-, Test- und Bundle-Skripte; `Scripts/ci/` die Node-Helfer der CI |
+| `.github/workflows/` | `ci` | Build, Commitlint, CodeQL, Build-Analyse - Details in [`.github/CI.md`](.github/CI.md) |
 | Root/Doku | `repo` | Metadaten, Lizenz, commitlint, kein Produktivcode |
 
 ## Workspace-Befehle
@@ -39,6 +39,7 @@ Ziel-Plattform macOS 13+, ein einziges `Package.swift` im Root.
 | Release-Build | `swift build -c release` |
 | App-Bundle | `./Scripts/bundle-app.sh release` |
 | Commits pruefen | `npm install && npm run lint:commits` (prueft `origin/develop..HEAD`) |
+| CI-Helfer testen | `npm run test:scripts` (Node, nur `Scripts/ci/`) |
 
 Ein `.claude/hooks/session-start.sh` meldet je Sitzung die Toolchain und ob
 `Testing.framework` gefunden wird, und installiert `node_modules` fuer
@@ -84,6 +85,10 @@ Geraet verifiziert.
 - **DDC-Symbole kommen zur Laufzeit per `dlsym`**, damit das Binary auch auf
   Maschinen ohne sie laedt (DDC meldet dort "unsupported"). DDC braucht eine
   direkte HDMI-/USB-C-Verbindung; viele Docks leiten I2C nicht weiter.
+- **Kein zweiter Ordner `scripts/` in Kleinschreibung.** Die Node-Helfer der
+  CI liegen unter `Scripts/ci/`, nicht daneben: APFS ist standardmaessig
+  case-insensitive, `Scripts/` und `scripts/` waeren auf dem Mac derselbe
+  Ordner und der Checkout wuerde brechen.
 - **Neue Datei: nichts registrieren** - SwiftPM sammelt `Sources/<Target>/`
   selbst ein. Ein neues **Target** dagegen gehoert in `Package.swift` *und*
   `Scripts/bundle-app.sh`; App-Targets brauchen zusaetzlich eine `Info.plist`

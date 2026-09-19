@@ -1,0 +1,19 @@
+# Konfiguration fuer die CodeQL-Analyse aus .github/workflows/codeql.yml.
+# Greift nur beim "advanced setup" - das Default-Setup im Repo-Menue liest
+# diese Datei nicht (siehe .github/CI.md, Abschnitt "Code-Scanning").
+
+name: "MacOS-Corsair-Xenon"
+
+# Die Query-Suite bleibt die Vorgabe ("default"). "security-extended" waere die
+# naechste Stufe - bewusst nicht gesetzt, sie bringt viele neue Treffer mit
+# niedriger Praezision.
+
+# Wichtig zur Erwartung: bei einer compilierten Sprache folgt die Analyse dem
+# Build, nicht dem Dateibaum. paths-ignore wirkt hier deshalb nur schwach -
+# was "swift build" uebersetzt, wird analysiert. Die Liste unten haelt nur
+# Artefakte heraus, die ein lokaler Lauf hinterlaesst und die versehentlich
+# mitgecheckt werden koennten.
+paths-ignore:
+  - ".build/**"
+  - "dist/**"
+  - "node_modules/**"
