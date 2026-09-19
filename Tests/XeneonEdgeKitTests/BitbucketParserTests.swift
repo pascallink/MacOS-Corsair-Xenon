@@ -159,6 +159,107 @@ import Testing
     }
     """
 
+    /// Ein Nicht-Objekt in `values` neben einem gueltigen Eintrag.
+    private static let nullEntryJSON = """
+    {
+        "values": [
+            null,
+            {
+                "id": 20,
+                "title": "Valid after null",
+                "toRef": {
+                    "displayId": "refs/heads/develop",
+                    "repository": {
+                        "slug": "app",
+                        "project": { "key": "REFI" }
+                    }
+                },
+                "author": { "user": { "name": "alice" } },
+                "reviewers": []
+            }
+        ],
+        "isLastPage": true
+    }
+    """
+
+    /// Ein Reviewer-Eintrag, der ein Nicht-Objekt ist, neben einem
+    /// gueltigen Reviewer.
+    private static let nullReviewerJSON = """
+    {
+        "values": [
+            {
+                "id": 21,
+                "title": "Reviewer with null sibling",
+                "toRef": {
+                    "displayId": "refs/heads/develop",
+                    "repository": {
+                        "slug": "app",
+                        "project": { "key": "REFI" }
+                    }
+                },
+                "author": { "user": { "name": "alice" } },
+                "reviewers": [
+                    null,
+                    { "user": { "name": "bob" }, "status": "APPROVED" }
+                ]
+            }
+        ],
+        "isLastPage": true
+    }
+    """
+
+    /// `displayId` ohne `refs/heads/`-Praefix, wie es das
+    /// Dashboard-Endpoint als Normalfall liefert.
+    private static let plainDisplayIdJSON = """
+    {
+        "values": [
+            {
+                "id": 22,
+                "title": "Plain display id",
+                "toRef": {
+                    "displayId": "develop",
+                    "repository": {
+                        "slug": "app",
+                        "project": { "key": "REFI" }
+                    }
+                },
+                "author": { "user": { "name": "alice" } },
+                "reviewers": []
+            }
+        ],
+        "isLastPage": true
+    }
+    """
+
+    /// Ein gueltiger Eintrag, dessen `links.self` zuerst ein Nicht-Objekt
+    /// und danach einen gueltigen Link enthaelt.
+    private static let garbageSelfLinkJSON = """
+    {
+        "values": [
+            {
+                "id": 23,
+                "title": "Garbage before valid self link",
+                "toRef": {
+                    "displayId": "refs/heads/develop",
+                    "repository": {
+                        "slug": "app",
+                        "project": { "key": "REFI" }
+                    }
+                },
+                "author": { "user": { "name": "alice" } },
+                "reviewers": [],
+                "links": {
+                    "self": [
+                        null,
+                        { "href": "https://bitbucket.example.com/pr/23" }
+                    ]
+                }
+            }
+        ],
+        "isLastPage": true
+    }
+    """
+
     @Test func parsesAllThreePullRequests() {
         let page = BitbucketResponseParser.parsePage(Data(Self.threePullRequestsJSON.utf8))
         #expect(page.values.count == 3)
@@ -245,5 +346,40 @@ import Testing
         #expect(reviewers.count == 1)
         #expect(reviewers[0].name == "bob")
         #expect(reviewers[0].status == .approved)
+    }
+
+    @Test func nullEntryIsSkippedRestSurvives() {
+        let page = BitbucketResponseParser.parsePage(Data(Self.nullEntryJSON.utf8))
+        #expect(page.values.count == 1)
+        #expect(page.values[0].id == 20)
+        #expect(page.isLastPage == true)
+    }
+
+    @Test func nullReviewerIsSkippedRestSurvives() {
+        let page = BitbucketResponseParser.parsePage(Data(Self.nullReviewerJSON.utf8))
+        #expect(page.values.count == 1)
+        let reviewers = page.values[0].reviewers
+        #expect(reviewers.count == 1)
+        #expect(reviewers[0].name == "bob")
+        #expect(reviewers[0].status == .approved)
+    }
+
+    @Test func displayIdWithoutPrefixIsUsedAsIs() {
+        let page = BitbucketResponseParser.parsePage(Data(Self.plainDisplayIdJSON.utf8))
+        #expect(page.values.count == 1)
+        #expect(page.values[0].targetBranch == "develop")
+    }
+
+    @Test func lastPageEntryWithoutLinksOrUpdatedDateHasDefaults() {
+        let page = BitbucketResponseParser.parsePage(Data(Self.lastPageJSON.utf8))
+        let pr = page.values[0]
+        #expect(pr.url == "")
+        #expect(pr.updatedAt == nil)
+    }
+
+    @Test func garbageBeforeValidSelfLinkIsSkipped() {
+        let page = BitbucketResponseParser.parsePage(Data(Self.garbageSelfLinkJSON.utf8))
+        #expect(page.values.count == 1)
+        #expect(page.values[0].url == "https://bitbucket.example.com/pr/23")
     }
 }
