@@ -1,67 +1,138 @@
-# Projekt: MacOS-Corsair-Xenon
+# MacOS-Corsair-Xenon
 
-Dies ist die zentrale Anweisungsdatei (`claude.md`) für Claude Code zur Entwicklung der Mac-App für den **Corsair Xenon Edge**.
-
-## Projektpfad
-`Workspace: /Volumes/Sources/tools/MacOS-Corsair-Xenon`
+Natives SwiftPM-Paket (kein Xcode-Projekt, kein Monorepo) fuer den nativen
+macOS-Treiber und das Dashboard des CORSAIR XENEON EDGE: Touch, DDC-
+Helligkeit, Sensoren und ein Menueleisten-Widget fuer Claude-Session-Kosten.
+Ziel-Plattform macOS 13+, ein einziges `Package.swift` im Root.
 
 ## ⚠️ Oberste Entwicklungsrichtlinie: Local First
-- **Immer zuerst lokal arbeiten:** Jegliche Code-Erstellung, Änderungen und Tests müssen zwingend **lokal** durchgeführt werden.
-- **Remote Repositories zweitrangig:** Es existiert ein Remote GitHub-Repository, dieses darf jedoch **nicht** für ungetesteten Code verwendet werden. Keine direkten Commits oder Pushes auf den Remote-Server ohne vorherige lokale Validierung.
-- **Isolierte Entwicklung:** Erstelle lokale Branches für neue Features oder Bugfixes.
 
-## Build- und Test-Anweisungen
+- **Immer zuerst lokal arbeiten:** Code-Erstellung, Aenderungen und Tests
+  laufen zwingend lokal auf Pascals Rechner, nie ungetestet gegen Remote.
+- **Remote Repositories zweitrangig:** Ein GitHub-Repository existiert, nimmt
+  aber keinen ungetesteten Code an - keine direkten Commits oder Pushes ohne
+  vorherige lokale Validierung.
+- **Isolierte Entwicklung:** lokale Branches je Feature/Bugfix.
+- **Nach dem Push endet die Arbeit:** PR anlegen, Ergebnis melden, fertig.
+  Nicht beobachten, nicht nachfassen, nicht anbieten es zu tun - Pascal kommt
+  aktiv zurueck, wenn etwas ansteht. Siehe `.github/CI.md`.
 
-### Toolchain auf diesem Rechner
-Es sind **nur die Command Line Tools** installiert, **kein** vollständiges
-Xcode (`xcode-select -p` → `/Library/Developer/CommandLineTools`). Daraus
-folgt:
-- `xcodebuild` steht **nicht** zur Verfügung. Gebaut wird ausschließlich mit
-  `swift build` bzw. den Skripten unter `Scripts/`.
-- **`XCTest` existiert auf diesem System nicht** — es wird nur mit Xcode
-  ausgeliefert. Tests, die `import XCTest` verwenden, sind hier prinzipiell
-  nicht lauffähig.
-- Ein Wechsel per `sudo xcode-select -s /Library/Developer/CommandLineTools`
-  ändert daran nichts — das ist bereits der aktive Zustand.
+## Targets
 
-### Testframework: swift-testing, nicht XCTest
-Die Unit-Tests nutzen **swift-testing** (`import Testing`, `@Suite`, `@Test`,
-`#expect`, `#require`), weil dessen `Testing.framework` im Gegensatz zu
-XCTest auch den Command Line Tools beiliegt. **Neue Tests deshalb niemals in
-XCTest schreiben** — sie wären lokal nicht ausführbar und würden die
-„Local First"-Richtlinie unterlaufen.
+| Pfad | Scope | Zweck |
+| --- | --- | --- |
+| `Sources/XeneonEdgeKit/` | `kit` | Framework: Bragi-/HID-Transport, DDC-Helligkeit, Touch-Treiber und -Mapping, Claude-Session-Auswertung |
+| `Sources/XeneonEdgeApp/` | `app` | Vollbild-Dashboard fuer das Edge (SwiftUI/AppKit) |
+| `Sources/ClaudeUsageWidget/` | `widget` | Menueleisten-Widget fuer Claude-Session-Kosten |
+| `Sources/xeneonctl/` | `ctl` | CLI: Geraetesteuerung ohne GUI-App |
+| `Scripts/` | `scripts` | Build-, Test- und Bundle-Skripte |
+| `.github/workflows/` | `ci` | Build- und Commitlint-Workflows - Details in [`.github/CI.md`](.github/CI.md) |
+| Root/Doku | `repo` | Metadaten, Lizenz, commitlint, kein Produktivcode |
 
-SwiftPM verdrahtet die CLT-Kopie des Frameworks nicht von selbst; die nötigen
-Such- und Runtime-Pfade kapselt `Scripts/test.sh`. Lokal deshalb immer:
+## Workspace-Befehle
 
-```bash
-./Scripts/test.sh          # statt: swift test
-```
+| Zweck | Befehl |
+| --- | --- |
+| Build | `swift build` |
+| Test (alles) | `./Scripts/test.sh` |
+| Test (eine Suite) | `./Scripts/test.sh --filter <Suite>` |
+| Release-Build | `swift build -c release` |
+| App-Bundle | `./Scripts/bundle-app.sh release` |
+| Commits pruefen | `npm install && npm run lint:commits` (prueft `origin/develop..HEAD`) |
 
-Auf einem Rechner mit vollem Xcode fällt das Skript automatisch auf ein
-schlichtes `swift test` zurück — genau das ruft auch die GitHub-CI auf,
-`.github/workflows/build.yml` braucht dafür keine Anpassung.
+Ein `.claude/hooks/session-start.sh` meldet je Sitzung die Toolchain und ob
+`Testing.framework` gefunden wird, und installiert `node_modules` fuer
+commitlint nur, wenn das Lockfile neuer ist als `node_modules`. Blockiert nie
+eine Sitzung.
 
-### Vollständige CI-Kette lokal
-Die vier Schritte aus `.github/workflows/build.yml` lassen sich damit
-komplett lokal nachstellen — vor jedem Commit durchlaufen lassen:
+## Toolchain
 
-```bash
-swift build && ./Scripts/test.sh && swift build -c release && ./Scripts/bundle-app.sh release
-```
+Nur die **Command Line Tools**, kein volles Xcode (`xcode-select -p` ->
+`/Library/Developer/CommandLineTools`). Daraus folgt: kein `xcodebuild`,
+gebaut wird ausschliesslich mit `swift build`/`Scripts/`; und **kein XCTest**
+- `XCTest.framework` wird nur mit Xcode ausgeliefert. Tests laufen deshalb
+auf **swift-testing** (`import Testing`, `@Suite`, `@Test`, `#expect`), dessen
+`Testing.framework` den CLT beiliegt. SwiftPM verdrahtet die CLT-Kopie nicht
+von selbst - `./Scripts/test.sh` kapselt die Such- und Runtime-Pfade und faellt
+unter vollem Xcode automatisch auf ein schlichtes `swift test` zurueck, genau
+das ruft auch `build.yml` auf. Details, Suiten-Landkarte und Geraete-Mocking
+(Bragi/HID, DDC/IOKit, Touch) in [`.github/TESTS.md`](.github/TESTS.md).
 
-- **Lokale Tests:** Alle Tests müssen lokal erfolgreich durchlaufen, bevor
-  committet wird. Die CI ist die Zweitmeinung, nicht die Erstprüfung.
-- **Hardware-Simulation/Test:** Da es sich um eine App für den Corsair Xenon Edge (Monitor) handelt, stelle sicher, dass die Gerätekommunikation (z.B. DDC/CI oder USB-HID) entweder mit dem echten Gerät lokal getestet oder über Protokolle gemockt wird.
+## Repo-Regeln
 
-## Git Workflow (Strikt)
-1. **Branching:** Nutze lokale Branches für die Entwicklung (`git checkout -b feature/mein-neues-feature`).
-2. **Entwicklung & Build:** Code schreiben und lokal fehlerfrei kompilieren.
-3. **Testing:** App lokal ausführen und Funktionalität prüfen.
-4. **Lokaler Commit:** Änderungen lokal mit aussagekräftigen Nachrichten committen.
-5. **Push (Nur nach Freigabe):** Erst wenn der Code lokal vollständig verifiziert ist, darf ein `git push` auf das Remote-Repository erfolgen.
+- Deutsch in Kommentaren und UI-Texten, **ohne Umlaute** (`ue`, `ae`, `oe`,
+  `ss`).
+- Laufzeitcode getrennt von `Tests/` und `docs/` (fliegen aus dem
+  Release-Bundle raus).
+- Lizenz (`LICENSE`) und Projekt-Doku liegen im Root.
+- Kein Linter (kein SwiftLint, kein SwiftFormat) - erfinde keinen. Wo eine
+  Lint-Stufe erwartet wuerde, steht stattdessen die volle CI-Kette (siehe
+  [`.github/CI.md`](.github/CI.md)).
+
+## Workflow & QA-Regeln
+
+Kette je Aufgabe: lokales Modell setzt um -> Opus reviewt -> lokales Modell
+korrigiert. Umsetzung und Korrektur laufen ueber den Skill
+`.claude/skills/lokale-umsetzung/` (aider + `ollama/qwen2.5-coder:14b`), Opus
+zerlegt in Micro-Tasks, bewertet den Diff und verantwortet das Ergebnis. Die
+Vorlagen stehen in [`.github/PROMPTS.md`](.github/PROMPTS.md) - dort auch die
+Ausgaberegeln, das Micro-Task-Format und die Zuordnung der Subagents unter
+`.claude/agents/`.
+
+- **Umsetzung (lokal):** ein Micro-Task je Datei, hoechstens ~500 Zeilen,
+  aider committet, Opus prueft den Diff. Zwei Fehlversuche am selben Micro-
+  Task, eine Zieldatei ueber der Grenze (`DashboardView.swift`,
+  `TouchDriver.swift`) oder mehr als eine Datei je Befund: Eskalation an den
+  Subagenten `umsetzer` (Sonnet).
+- **Subtask-Abschluss:** jede Umsetzung endet verpflichtend mit dem
+  Review-Prompt (Stufe 1) fuer Opus.
+- **QA & Review (Opus):** prueft Code-Logik, macOS-/Swift-Konformitaet
+  (SwiftPM-Targets, Entitlements, IOKit-/DDC-Zugriffe, Thread-Sicherheit),
+  Tests und Sicherheit; Ergebnis als Stufe-1-Fliesstext, kein JSON-Bericht.
+- **Korrektur-Routing (Opus-Abschluss):** Opus haengt 0, 1 oder 2 Stufe-2-
+  Prompts an, je Prompt genau eine Zieldatei. Jeder Befund geht zuerst lokal;
+  bei Eskalation nur `STYLE`/`MINOR` an Haiku (`korrektur-style`), alles
+  andere an Sonnet (`korrektur-logik`).
+- **Uebergabe per Subagent:** Review laeuft als `reviewer` aus
+  `.claude/agents/`; `umsetzer`, `korrektur-style` und `korrektur-logik` sind
+  Eskalationspfad, nicht erste Wahl - gleiche Vorlagen, gleiche Kette.
+- **Local First gilt in jeder Stufe:** jeder Agent committet lokal, Push nur
+  nach Freigabe durch Pascal.
+
+## Test-Kontext-Regeln
+
+Details, Suiten-Landkarte und Runner: [`.github/TESTS.md`](.github/TESTS.md).
+
+- **Dateiauswahl:** Bei Bugfix oder Feature nur die Quelldateien des
+  betroffenen Targets und dessen Suite unter `Tests/XeneonEdgeKitTests/`
+  oeffnen.
+- **Testausfuehrung waehrend der Arbeit:** ausschliesslich
+  `./Scripts/test.sh --filter <Suite>`. Kein Gesamtlauf, um zwischendurch zu
+  schauen, ob noch alles gruen ist.
+- **Vor dem finalen Commit:** genau einmal die volle CI-Kette `swift build &&
+  ./Scripts/test.sh && swift build -c release && ./Scripts/bundle-app.sh
+  release`. Rot heisst zurueck in den Suite-Lauf, nicht in den naechsten
+  Gesamtlauf.
+- **Geraetezugriffe immer gemockt:** HID (Bragi), IOKit (DDC) und der Touch-
+  Digitizer laufen in Tests ueber aufzeichnende Doubles, nie gegen das echte
+  Geraet.
+
+## Commit-Konventionen
+
+`<typ>(<scope>): <Betreff im Imperativ, ohne Punkt>`, erzwungen per commitlint
+(`.github/workflows/commitlint.yml`, Basis `origin/develop`).
+
+- Typen: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`.
+- Scope = Spalte oben; `commitlint.config.js` liest sie aus den
+  Ordnernamen unter `Sources/` (Kurzformen dort in `ALIASES`).
+- Ein Commit, ein Scope; repoweit `chore(repo):`.
+- **Header (erste Zeile) streng maximal 72 Zeichen** - `header-max-length` in
+  `commitlint.config.js` blockt die CI sonst hart. Betreff im Zweifel kuerzen,
+  Details in den Commit-Body.
 
 ## Systemanweisungen an Claude
-- Behalte den Projektpfad `/Volumes/Sources/tools/MacOS-Corsair-Xenon` immer im Kontext.
+
+- Workspace-Pfad: `/Volumes/Sources/tools/MacOS-Corsair-Xenon`.
 - Agiere als erfahrener macOS/Swift-Entwickler.
-- Führe **keine** `git push` Befehle selbstständig aus. Gehe immer davon aus, dass Änderungen erst lokal iteriert werden.
+- Fuehre **keine** `git push`-Befehle selbststaendig aus - Aenderungen werden
+  immer erst lokal iteriert, Push nur nach Freigabe durch Pascal.
