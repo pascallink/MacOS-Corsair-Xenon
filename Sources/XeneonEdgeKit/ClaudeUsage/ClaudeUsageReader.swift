@@ -9,14 +9,29 @@
 //   ~/.claude/.credentials.json        ONLY the plan name (subscriptionType)
 //                                      is read; access tokens are ignored
 //
+// Scan window is staggered, not a single lookback: files are only looked at
+// at all when newer than bucketLookback (rolling week + buffer), but only
+// files newer than detailLookback (30h) are parsed into individual entries
+// for "today" and the active 5h block. Everything older, up to
+// bucketLookback, is compressed into hourly HourBuckets for the rolling
+// 7-day window instead - a full week of raw entries would be six times the
+// material of today's scan, on every widget refresh (45s).
+//
 // CLAUDE_CONFIG_DIR is honored; ~/.config/claude is checked as a fallback.
 
 import Foundation
 
 public final class ClaudeUsageReader {
-    /// How far back log files are considered. Covers the current 5h block
-    /// plus a full local day for the "today" totals.
-    private let lookback: TimeInterval = 30 * 60 * 60
+    /// Files newer than this are parsed into individual entries. Covers the
+    /// current 5h block plus a full local day for the "today" totals -
+    /// unchanged from before the week window was added.
+    private let detailLookback: TimeInterval = 30 * 60 * 60
+    /// Files newer than this (but older than detailLookback) are only
+    /// compressed into hourly buckets for the rolling week window. Two
+    /// separate lookbacks, not one bigger one, because a week of raw entries
+    /// would be parsed and kept in memory on every 45s widget refresh - the
+    /// bucket path throws the raw entries away right after compressing them.
+    private let bucketLookback: TimeInterval = 7 * 24 * 60 * 60 + 6 * 60 * 60
 
     private let fileManager = FileManager.default
     private let configDirectories: [URL]
@@ -28,6 +43,16 @@ public final class ClaudeUsageReader {
         let entries: [ParsedEntry]
     }
     private var cache: [String: CachedFile] = [:]
+
+    // Per-file cache of the compressed hour buckets for files outside the
+    // detail window - avoids re-parsing and re-compressing week-old files
+    // that have not changed since the last refresh.
+    private struct CachedBuckets {
+        let modificationDate: Date
+        let size: Int
+        let buckets: [HourBucket]
+    }
+    private var bucketCache: [String: CachedBuckets] = [:]
 
     public init(configDirectories: [URL]? = nil) {
         if let configDirectories {
@@ -99,7 +124,9 @@ public final class ClaudeUsageReader {
 
         var entries: [ClaudeUsageEntry] = []
         var seen = Set<String>()
-        let cutoff = now.addingTimeInterval(-lookback)
+        var buckets: [HourBucket] = []
+        let detailCutoff = now.addingTimeInterval(-detailLookback)
+        let bucketCutoff = now.addingTimeInterval(-bucketLookback)
 
         for dir in directories {
             let projects = dir.appendingPathComponent("projects")
@@ -108,18 +135,31 @@ public final class ClaudeUsageReader {
             for file in files {
                 guard let attrs = try? fileManager.attributesOfItem(atPath: file.path),
                       let mtime = attrs[.modificationDate] as? Date,
-                      mtime >= cutoff
+                      mtime >= bucketCutoff
                 else { continue }
                 let size = (attrs[.size] as? Int) ?? 0
-                let fileEntries = parseFile(file, modificationDate: mtime, size: size)
-                if fileEntries.isEmpty { continue }
-                snap.scannedFiles += 1
-                for parsed in fileEntries {
-                    if let key = parsed.dedupKey {
-                        if seen.contains(key) { continue }
-                        seen.insert(key)
+
+                if mtime >= detailCutoff {
+                    // Detail path: unchanged behaviour, feeds "today" and
+                    // the 5h block with individual entries.
+                    let fileEntries = parseFile(file, modificationDate: mtime, size: size)
+                    if fileEntries.isEmpty { continue }
+                    snap.scannedFiles += 1
+                    for parsed in fileEntries {
+                        if let key = parsed.dedupKey {
+                            if seen.contains(key) { continue }
+                            seen.insert(key)
+                        }
+                        entries.append(parsed.entry)
                     }
-                    entries.append(parsed.entry)
+                } else {
+                    // Bucket path: mtime is a file's last write, so every
+                    // entry inside it is older than mtime. A file that
+                    // already falls short of detailCutoff can therefore not
+                    // hold any entry inside the 30h detail window - the two
+                    // paths never see the same entry, so nothing here is
+                    // double counted against the detail path above.
+                    buckets.append(contentsOf: bucketsForFile(file, modificationDate: mtime, size: size))
                 }
             }
         }
@@ -138,6 +178,27 @@ public final class ClaudeUsageReader {
         // Current 5h block.
         let blocks = UsageBlock.build(from: entries.filter { $0.timestamp <= now })
         snap.activeBlock = blocks.last(where: { $0.isActive(at: now) })
+
+        // Kalendertag als Limitfenster. Braucht keine Eimer: der 30h-
+        // Detaillookback deckt auch den laengsten Kalendertag ab (25h bei
+        // der Winterzeitumstellung), also liegen alle Tageseintraege ohnehin
+        // schon in `entries`.
+        snap.day = UsageWindow.day(from: entries, now: now)
+        // Rollendes 7-Tage-Fenster: Eimer fuer alles ausserhalb des
+        // Detailfensters, rohe Eintraege fuer den aktuellen Rand.
+        snap.week = UsageWindow.week(fromBuckets: buckets, entries: entries, now: now)
+
+        // Cache-Eviction bewusst weggelassen: `snapshots(for:...)` ruft
+        // `makeSnapshot` fuer mehrere Profile nacheinander auf derselben
+        // Reader-Instanz auf. Wuerde hier nach "in diesem Lauf besuchte
+        // Pfade" eingedampft, wuerde der Aufruf fuer Profil B den gerade erst
+        // gefuellten Cache von Profil A wieder leeren, und umgekehrt beim
+        // naechsten Refresh - der Cache waere fuer Mehrprofil-Setups
+        // wirkungslos. `makeSnapshot` kennt seinen Aufrufkontext nicht, also
+        // bleibt hier lieber kein Trimmen als ein Trimmen, das Profile
+        // gegenseitig leert. Beide Caches sind ueber `url.path` geschluesselt
+        // und kollidieren dadurch nicht zwischen Profilen, sie wachsen nur
+        // unbegrenzt ueber die Laufzeit des Prozesses.
 
         return snap
     }
@@ -173,6 +234,44 @@ public final class ClaudeUsageReader {
         }
         cache[key] = CachedFile(modificationDate: modificationDate, size: size, entries: parsed)
         return parsed
+    }
+
+    /// Compresses a file outside the detail window into hourly buckets for
+    /// the rolling week window. Deliberately does NOT call `parseFile`: its
+    /// cache would keep the full `ParsedEntry` list for every week-old file
+    /// in memory, exactly what this compression exists to avoid - here the
+    /// raw entries are discarded right after compressing and only the
+    /// handful of resulting buckets are kept.
+    private func bucketsForFile(_ url: URL, modificationDate: Date, size: Int) -> [HourBucket] {
+        let key = url.path
+        if let cached = bucketCache[key], cached.modificationDate == modificationDate,
+           cached.size == size {
+            return cached.buckets
+        }
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8)
+        else { return [] }
+
+        var parsed: [ParsedEntry] = []
+        text.enumerateLines { line, _ in
+            if let p = Self.parseLine(line) { parsed.append(p) }
+        }
+
+        // Dedupe within this single file - streamed replies can appear
+        // multiple times in one transcript and must be counted once.
+        var seenInFile = Set<String>()
+        var entries: [ClaudeUsageEntry] = []
+        for p in parsed {
+            if let dedupKey = p.dedupKey {
+                if seenInFile.contains(dedupKey) { continue }
+                seenInFile.insert(dedupKey)
+            }
+            entries.append(p.entry)
+        }
+
+        let buckets = HourBucket.buckets(from: entries)
+        bucketCache[key] = CachedBuckets(modificationDate: modificationDate, size: size, buckets: buckets)
+        return buckets
     }
 
     // MARK: - Line parsing

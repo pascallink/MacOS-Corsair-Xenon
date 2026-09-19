@@ -75,6 +75,123 @@ import Testing
     }
 }
 
+// MARK: - Staggered scan (detail path vs. bucket path)
+
+@Suite struct ClaudeUsageReaderWindowTests {
+    private func line(timestamp: String, model: String = "claude-opus-5",
+                      input: Int = 10, output: Int = 20,
+                      cacheWrite: Int = 0, cacheRead: Int = 0,
+                      messageID: String = "msg_1", requestID: String = "req_1") -> String {
+        """
+        {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestID)",\
+        "message":{"id":"\(messageID)","model":"\(model)","usage":{"input_tokens":\(input),\
+        "output_tokens":\(output),"cache_creation_input_tokens":\(cacheWrite),\
+        "cache_read_input_tokens":\(cacheRead)}}}
+        """
+    }
+
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    /// Legt `<tmp>/projects/<projectDir>/<file>.jsonl` an, schreibt die
+    /// gegebenen Zeilen hinein und setzt die Datei-mtime explizit - die
+    /// Testfaelle haengen davon ab, ob eine Datei im Detail- oder
+    /// Eimerfenster liegt, nicht davon, wann sie tatsaechlich geschrieben
+    /// wurde.
+    private func makeTranscript(lines: [String], mtime: Date) throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xeneon-window-\(UUID().uuidString)")
+        let projects = base.appendingPathComponent("projects/demo")
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let file = projects.appendingPathComponent("session.jsonl")
+        try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: file.path)
+        return base
+    }
+
+    /// Eine Datei, deren mtime und Eintraege beide 3 Tage alt sind, liegt
+    /// ausserhalb des 30h-Detailfensters, aber innerhalb des Wochenfensters:
+    /// ihre Tokens tauchen in `week` auf, aber weder in `activeBlock` noch
+    /// in `today`, weil beide nur aus dem Detailpfad gespeist werden.
+    @Test func fileOlderThanDetailWindowFeedsWeekOnlyNotBlockOrToday() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 50)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 50)
+        #expect(snap.activeBlock == nil)
+        #expect(snap.today.inputTokens == 0)
+    }
+
+    /// Eine frische Datei mit heutigen Eintraegen landet im Detailpfad und
+    /// zaehlt ueberall: `today`, `day` und `week`.
+    @Test func freshFileFeedsTodayDayAndWeek() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let recent = now.addingTimeInterval(-60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(recent), input: 30)],
+            mtime: recent)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.today.inputTokens == 30)
+        #expect(snap.day.totals.inputTokens == 30)
+        #expect(snap.week.totals.inputTokens == 30)
+    }
+
+    /// Eine Datei mit einer mtime von vor 10 Tagen liegt ausserhalb des
+    /// 7-Tage-Eimerfensters (plus Puffer) und taucht nirgends auf - weder im
+    /// Detail- noch im Verdichtungspfad wird sie ueberhaupt angefasst.
+    @Test func fileOlderThanBucketWindowIsIgnoredEntirely() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tenDaysAgo = now.addingTimeInterval(-10 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(tenDaysAgo), input: 999)],
+            mtime: tenDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 0)
+        #expect(snap.today.inputTokens == 0)
+        #expect(snap.activeBlock == nil)
+    }
+
+    /// Derselbe messageID/requestID zweimal in einer alten, verdichteten
+    /// Datei (typisch fuer gestreamte Antworten) darf im Verdichtungspfad
+    /// nur einmal zaehlen - dieselbe Dedupe-Garantie wie im Detailpfad, nur
+    /// innerhalb dieser einen Datei statt ueber alle Dateien hinweg.
+    @Test func duplicateEntryInOldFileCountsOnceInWeekBucket() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [
+                line(timestamp: iso(threeDaysAgo), input: 40, messageID: "dup", requestID: "req_dup"),
+                line(timestamp: iso(threeDaysAgo), input: 40, messageID: "dup", requestID: "req_dup"),
+            ],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 40)
+        #expect(snap.week.totals.entryCount == 1)
+    }
+}
+
 @Suite struct UsageBlockTests {
     private func entry(atMinutes minutes: Double, tokens: Int = 10) -> ClaudeUsageEntry {
         ClaudeUsageEntry(timestamp: Date(timeIntervalSince1970: 1_000_000_000 + minutes * 60),
