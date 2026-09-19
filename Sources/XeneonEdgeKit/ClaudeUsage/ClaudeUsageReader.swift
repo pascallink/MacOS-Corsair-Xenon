@@ -135,15 +135,17 @@ public final class ClaudeUsageReader {
         let detailCutoff = now.addingTimeInterval(-detailLookback)
         let bucketCutoff = now.addingTimeInterval(-bucketLookback)
 
+        // Kandidaten ueber alle Verzeichnisse hinweg sammeln, bevor
+        // irgendeine Datei geparst wird: sonst laeuft der Eimerpfad des
+        // ersten Verzeichnisses vor dem Detailpfad des zweiten, und die
+        // Prioritaet "Detailpfad vor Eimerpfad" gilt nur je Verzeichnis
+        // statt ueber alle Verzeichnisse hinweg.
+        var candidates: [(url: URL, mtime: Date, size: Int)] = []
         for dir in directories {
             let projects = dir.appendingPathComponent("projects")
             guard fileManager.fileExists(atPath: projects.path) else { continue }
             guard let files = try? allJSONLFiles(under: projects) else { continue }
 
-            // Ein Durchgang je Verzeichnis: mtime und size je Datei einmal
-            // ermitteln und die Kandidaten fuer beide Pfade sammeln, damit
-            // der Verzeichnis-Enumerator nicht zweimal laufen muss.
-            var candidates: [(url: URL, mtime: Date, size: Int)] = []
             for file in files {
                 guard let attrs = try? fileManager.attributesOfItem(atPath: file.path),
                       let mtime = attrs[.modificationDate] as? Date,
@@ -152,34 +154,36 @@ public final class ClaudeUsageReader {
                 let size = (attrs[.size] as? Int) ?? 0
                 candidates.append((file, mtime, size))
             }
+        }
 
-            // Detailpfad zuerst: unveraendertes Verhalten, fuellt "today"
-            // und den 5h-Block mit einzelnen Eintraegen und befuellt dabei
-            // `seen` vollstaendig.
-            for candidate in candidates where candidate.mtime >= detailCutoff {
-                let fileEntries = parseFile(candidate.url, modificationDate: candidate.mtime, size: candidate.size)
-                if fileEntries.isEmpty { continue }
-                snap.scannedFiles += 1
-                for parsed in fileEntries {
-                    if let key = parsed.dedupKey {
-                        if seen.contains(key) { continue }
-                        seen.insert(key)
-                    }
-                    entries.append(parsed.entry)
+        // Detailpfad zuerst: unveraendertes Verhalten, fuellt "today"
+        // und den 5h-Block mit einzelnen Eintraegen und befuellt dabei
+        // `seen` vollstaendig - ueber alle Verzeichnisse hinweg, nicht nur
+        // je Verzeichnis.
+        for candidate in candidates where candidate.mtime >= detailCutoff {
+            let fileEntries = parseFile(candidate.url, modificationDate: candidate.mtime, size: candidate.size)
+            if fileEntries.isEmpty { continue }
+            snap.scannedFiles += 1
+            for parsed in fileEntries {
+                if let key = parsed.dedupKey {
+                    if seen.contains(key) { continue }
+                    seen.insert(key)
                 }
+                entries.append(parsed.entry)
             }
+        }
 
-            // Eimerpfad danach: `seen` ist an dieser Stelle bereits durch
-            // den Detailpfad oben vollstaendig befuellt, dedupliziert also
-            // auch gegen Dateien, die im Detailpfad geparst wurden - genau
-            // der Fall, in dem derselbe message.id + requestId sowohl in
-            // einer frischen als auch in einer aelteren Datei auftaucht.
-            for candidate in candidates where candidate.mtime < detailCutoff {
-                let fileBuckets = bucketsForFile(candidate.url, modificationDate: candidate.mtime,
-                                                 size: candidate.size, seen: &seen)
-                if !fileBuckets.isEmpty { snap.scannedFiles += 1 }
-                buckets.append(contentsOf: fileBuckets)
-            }
+        // Eimerpfad danach: `seen` ist an dieser Stelle bereits durch den
+        // Detailpfad oben ueber ALLE Verzeichnisse hinweg vollstaendig
+        // befuellt, dedupliziert also auch gegen Dateien, die im Detailpfad
+        // eines anderen Verzeichnisses geparst wurden - genau der Fall, in
+        // dem derselbe message.id + requestId sowohl in einer frischen als
+        // auch in einer aelteren Datei auftaucht.
+        for candidate in candidates where candidate.mtime < detailCutoff {
+            let fileBuckets = bucketsForFile(candidate.url, modificationDate: candidate.mtime,
+                                             size: candidate.size, seen: &seen)
+            if !fileBuckets.isEmpty { snap.scannedFiles += 1 }
+            buckets.append(contentsOf: fileBuckets)
         }
 
         entries.append(contentsOf: additionalEntries)
@@ -210,12 +214,20 @@ public final class ClaudeUsageReader {
         // Pfaden: `snapshots(for:...)` ruft `makeSnapshot` fuer mehrere
         // Profile nacheinander auf derselben Reader-Instanz auf, ein Trimmen
         // nach besuchten Pfaden wuerde sich die Profile gegenseitig leeren.
-        // Dateien aelter als bucketLookback faellt der Scan (Filter
-        // `mtime >= bucketCutoff`) ohnehin nie wieder an, die Eviction nach
-        // Alter ist deshalb profilunabhaengig.
-        let evictionCutoff = now.addingTimeInterval(-bucketLookback)
-        cache = cache.filter { $0.value.modificationDate >= evictionCutoff }
-        bucketCache = bucketCache.filter { $0.value.modificationDate >= evictionCutoff }
+        // Zwei getrennte Cutoffs, weil beide Caches von unterschiedlichen
+        // Pfaden befuellt und gelesen werden: `cache` ausschliesslich vom
+        // Detailpfad, dessen Filter `mtime >= detailCutoff` eine Datei
+        // aelter als detailLookback nie wieder anfasst - mit dem
+        // bucketCutoff bliebe so ein Eintrag samt seiner vollstaendigen
+        // ParsedEntry-Liste fast sechs Tage laenger im Speicher, als er je
+        // wieder getroffen werden koennte. `bucketCache` bleibt beim
+        // bucketCutoff: Dateien aelter als bucketLookback faellt der Scan
+        // (Filter `mtime >= bucketCutoff`) ohnehin nie wieder an, die
+        // Eviction ist deshalb weiterhin profilunabhaengig.
+        let detailEvictionCutoff = now.addingTimeInterval(-detailLookback)
+        let bucketEvictionCutoff = now.addingTimeInterval(-bucketLookback)
+        cache = cache.filter { $0.value.modificationDate >= detailEvictionCutoff }
+        bucketCache = bucketCache.filter { $0.value.modificationDate >= bucketEvictionCutoff }
 
         return snap
     }
