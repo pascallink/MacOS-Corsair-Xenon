@@ -27,6 +27,7 @@ gehoert zu genau einer Suite, Schnitt entlang der Verantwortung im Quellcode.
 
 | Suite | Quellen | Tests |
 | --- | --- | --- |
+| `BitbucketTargetPatternTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketModels.swift` | 21 |
 | `BragiFrameTests` | `Sources/XeneonEdgeKit/Bragi/BragiFrame.swift` | 17 |
 | `BragiTransportTests` | `Sources/XeneonEdgeKit/Bragi/BragiTransport.swift`, `BragiDevice.swift` | 10 |
 | `ClaudeSessionTests` | `Sources/XeneonEdgeKit/ClaudeUsage/ClaudeSessionReader.swift`, `ClaudeSessionModels.swift` | 18 |
@@ -43,6 +44,7 @@ je Datei, oder die Gesamtausgabe von `./Scripts/test.sh`.
 ```
 Tests/
   XeneonEdgeKitTests/
+    BitbucketTests.swift
     BragiFrameTests.swift
     BragiTransportTests.swift
     ClaudeSessionTests.swift
