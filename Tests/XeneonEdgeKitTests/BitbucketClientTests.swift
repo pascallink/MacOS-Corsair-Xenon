@@ -185,6 +185,7 @@ private final class BitbucketStubProtocol: URLProtocol {
             Issue.record("expected BitbucketError.unauthorized to be thrown")
         } catch {
             #expect(!String(describing: error).contains(secretToken))
+            #expect(!error.localizedDescription.contains(secretToken))
             if let bitbucketError = error as? BitbucketError {
                 #expect(!bitbucketError.description.contains(secretToken))
             } else {
@@ -207,6 +208,7 @@ private final class BitbucketStubProtocol: URLProtocol {
             Issue.record("expected BitbucketError.http to be thrown")
         } catch {
             #expect(!String(describing: error).contains(secretToken))
+            #expect(!error.localizedDescription.contains(secretToken))
             if let bitbucketError = error as? BitbucketError {
                 #expect(!bitbucketError.description.contains(secretToken))
             } else {
@@ -229,6 +231,7 @@ private final class BitbucketStubProtocol: URLProtocol {
             Issue.record("expected BitbucketError.transport to be thrown")
         } catch {
             #expect(!String(describing: error).contains(secretToken))
+            #expect(!error.localizedDescription.contains(secretToken))
             if let bitbucketError = error as? BitbucketError {
                 #expect(!bitbucketError.description.contains(secretToken))
                 #expect(bitbucketError == .transport)
@@ -236,6 +239,32 @@ private final class BitbucketStubProtocol: URLProtocol {
                 Issue.record("expected a BitbucketError, got \(type(of: error))")
             }
         }
+    }
+
+    @Test("localized descriptions match the mapped error text")
+    func localizedDescriptionsMatchMappedText() {
+        #expect((BitbucketError.unauthorized as Error).localizedDescription
+            == "Anmeldung abgelehnt - Token pruefen")
+        #expect((BitbucketError.http(500) as Error).localizedDescription
+            == "Serverfehler (Status 500)")
+        #expect((BitbucketError.transport as Error).localizedDescription
+            == "Server nicht erreichbar")
+    }
+
+    @Test("stops paginating when the server repeats a non-advancing nextPageStart")
+    func stopsOnStaleNextPageStart() async throws {
+        BitbucketStubProtocol.reset()
+        BitbucketStubProtocol.responses = [
+            (200, Self.pageBody(values: [Self.prJSON(id: 1)], isLastPage: false, nextPageStart: 0)),
+            (200, Self.pageBody(values: [Self.prJSON(id: 2)], isLastPage: true)),
+        ]
+
+        let client = BitbucketClient(baseURL: URL(string: "https://bitbucket.example.com")!,
+                                      token: Self.token, session: makeSession())
+        let prs = try await client.openPullRequests(role: .author)
+
+        #expect(BitbucketStubProtocol.recordedRequests.count == 1)
+        #expect(prs.count == 1)
     }
 
     /// Testdouble fuer `BitbucketTokenSource`, ohne die echte Keychain
