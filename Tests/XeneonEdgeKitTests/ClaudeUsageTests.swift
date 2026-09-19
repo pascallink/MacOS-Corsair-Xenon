@@ -918,14 +918,28 @@ import Testing
     /// `active(_:)` filtert deaktivierte Profile heraus und erhaelt die
     /// Reihenfolge der uebrigen.
     @Test func activeFiltersDisabledProfilesAndKeepsOrder() {
-        let max = ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: true)
+        let maxPlan = ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: true)
         let team = ClaudeProfile(name: "Team", configDir: "~/.claude-team", enabled: false)
         let pro = ClaudeProfile(name: "Pro", configDir: "~/.claude-pro", enabled: true)
 
-        let active = ClaudeProfile.active([max, team, pro])
+        let active = ClaudeProfile.active([maxPlan, team, pro])
         #expect(active.count == 2)
         #expect(active[0].name == "Max")
         #expect(active[1].name == "Pro")
+    }
+
+    /// Sind alle konfigurierten Profile deaktiviert, liefert `active` eine
+    /// leere Liste. Das leere Ergebnis heisst hier ausdruecklich NICHT
+    /// "keine Profile konfiguriert": Widget und Dashboard unterscheiden
+    /// beide Faelle und duerfen daraus keine Auto-Erkennung ableiten, sonst
+    /// zeigen sie genau das Konto, das abgeschaltet wurde.
+    @Test func activeReturnsEmptyWhenEveryProfileIsDisabled() {
+        let profiles = [
+            ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: false),
+            ClaudeProfile(name: "Pro", configDir: "~/.claude-pro", enabled: false)
+        ]
+
+        #expect(ClaudeProfile.active(profiles).isEmpty)
     }
 
     /// Round-trip: ein deaktiviertes Profil bleibt nach Encode/Decode
