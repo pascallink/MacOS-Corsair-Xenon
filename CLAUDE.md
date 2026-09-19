@@ -58,6 +58,37 @@ unter vollem Xcode automatisch auf ein schlichtes `swift test` zurueck, genau
 das ruft auch `build.yml` auf. Details, Suiten-Landkarte und Geraete-Mocking
 (Bragi/HID, DDC/IOKit, Touch) in [`.github/TESTS.md`](.github/TESTS.md).
 
+## Tech-Stack-Vorgaben
+
+Absichtliche Abweichungen, die beim Lesen wie ein Fehler aussehen - wer sie
+"repariert", macht etwas kaputt. Protokolldetails (Geraetetopologie, Bragi V2,
+DDC-Serviceauswahl) stehen in [`PROTOCOL-MACOS.md`](PROTOCOL-MACOS.md), am
+Geraet verifiziert.
+
+- **`TouchMapping` und `DDCServiceLocator.select()` bleiben IOKit-frei.** Reine
+  Regeln, deshalb ohne Geraet testbar. Nicht mit IOKit oder `NSScreen`
+  verdrahten - sonst faellt die halbe Testabdeckung weg.
+- **Seize ist beidseitig.** Der Touch-Treiber nimmt das Interface per
+  `kIOHIDOptionsTypeSeizeDevice` von macOS weg; wird es bei `stop()` nicht
+  freigegeben, bleibt Touch systemweit tot. Die Entscheidung faellt beim
+  Oeffnen des HID-Managers, eine geaenderte Einstellung wirkt also erst nach
+  Reconnect.
+- **`Device Mode` (Report `0x21`, Usage `0x52`) wird nicht geschrieben.**
+  Umschalten waere ein HID-*Write* ans Geraet und ist bewusst nicht
+  implementiert.
+- **`ClaudeUsageReader` liest aus `.credentials.json` nur den Plan-Typ.**
+  OAuth-Tokens werden nie ausgelesen, geloggt oder zurueckgegeben, und die
+  Keychain wird gar nicht erst angefasst - ihr Eintrag ist ein Blob mit den
+  Tokens. Fehlt die Datei, heisst das "Plan unbekannt" und die UI laesst das
+  Badge weg. Diese Zusage nicht aufweichen.
+- **DDC-Symbole kommen zur Laufzeit per `dlsym`**, damit das Binary auch auf
+  Maschinen ohne sie laedt (DDC meldet dort "unsupported"). DDC braucht eine
+  direkte HDMI-/USB-C-Verbindung; viele Docks leiten I2C nicht weiter.
+- **Neue Datei: nichts registrieren** - SwiftPM sammelt `Sources/<Target>/`
+  selbst ein. Ein neues **Target** dagegen gehoert in `Package.swift` *und*
+  `Scripts/bundle-app.sh`; App-Targets brauchen zusaetzlich eine `Info.plist`
+  unter `Resources/`.
+
 ## Repo-Regeln
 
 - Deutsch in Kommentaren und UI-Texten, **ohne Umlaute** (`ue`, `ae`, `oe`,
