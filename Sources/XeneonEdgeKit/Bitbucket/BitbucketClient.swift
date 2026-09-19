@@ -35,6 +35,10 @@ extension BitbucketError: CustomStringConvertible {
     }
 }
 
+extension BitbucketError: LocalizedError {
+    public var errorDescription: String? { description }
+}
+
 /// Holt die offenen Pull Requests einer Rolle vom Bitbucket-Data-Center-
 /// Dashboard-Endpunkt und fuehrt alle Seiten zu einer Liste zusammen.
 public struct BitbucketClient {
@@ -46,6 +50,10 @@ public struct BitbucketClient {
     /// meldet, darf die Schleife nie unbegrenzt laufen lassen.
     private static let maxPages = 5
 
+    /// Der Token geht als Bearer-Header an jede Anfrage an diese baseURL - bei
+    /// einer baseURL mit Schema `http` also im Klartext ueber das Netz. Die
+    /// Pruefung der konfigurierten baseURL liegt bewusst beim Aufrufer
+    /// (Konfiguration in Sub-Task 5).
     public init(baseURL: URL, token: String, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.token = token
@@ -94,7 +102,12 @@ public struct BitbucketClient {
             let page = BitbucketResponseParser.parsePage(data)
             results.append(contentsOf: page.values)
 
-            guard page.isLastPage == false, let nextPageStart = page.nextPageStart else {
+            // Der Deckel maxPages begrenzt nur die Anzahl der Anfragen, nicht
+            // die Duplikate: ein Server, der nextPageStart nicht ueber den
+            // aktuellen start-Wert hinaus erhoeht, wuerde ohne diese
+            // Fortschrittspruefung dieselbe Seite mehrfach eingesammelt.
+            guard page.isLastPage == false, let nextPageStart = page.nextPageStart,
+                nextPageStart > (start ?? 0) else {
                 break
             }
             start = nextPageStart
