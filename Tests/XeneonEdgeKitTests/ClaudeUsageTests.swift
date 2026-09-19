@@ -104,12 +104,22 @@ import Testing
     private func makeTranscript(lines: [String], mtime: Date) throws -> URL {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("xeneon-window-\(UUID().uuidString)")
+        try addTranscript(to: base, fileName: "session.jsonl", lines: lines, mtime: mtime)
+        return base
+    }
+
+    /// Schreibt ein weiteres Transkript in ein bestehendes Basisverzeichnis -
+    /// fuer Testfaelle, die mehrere Dateien mit je eigenem Dateinamen und
+    /// eigener mtime im selben Scan brauchen (dateiuebergreifende Duplikate,
+    /// Eimer-Cache). Ruft man denselben `fileName` erneut auf, wird die
+    /// bestehende Datei ueberschrieben - so laesst sich derselbe Pfad mit
+    /// neuem Inhalt, aber gleicher mtime praeparieren.
+    private func addTranscript(to base: URL, fileName: String, lines: [String], mtime: Date) throws {
         let projects = base.appendingPathComponent("projects/demo")
         try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
-        let file = projects.appendingPathComponent("session.jsonl")
+        let file = projects.appendingPathComponent(fileName)
         try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: file.path)
-        return base
     }
 
     /// Eine Datei, deren mtime und Eintraege beide 3 Tage alt sind, liegt
@@ -189,6 +199,113 @@ import Testing
 
         #expect(snap.week.totals.inputTokens == 40)
         #expect(snap.week.totals.entryCount == 1)
+    }
+
+    /// Zwei getrennte Dateien mit demselben messageID+requestID duerfen im
+    /// Wochenfenster nur einmal zaehlen - die Zusage, dass `seen` auch
+    /// dateiuebergreifend dedupliziert, nicht nur innerhalb einer Datei.
+    @Test func duplicateAcrossTwoOldFilesCountsOnceInWeek() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "cross", requestID: "req_cross")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-2.jsonl", lines: [sameLine], mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 40)
+        #expect(snap.week.totals.entryCount == 1)
+    }
+
+    /// Derselbe Eintrag taucht sowohl in einer frischen Datei (Detailpfad)
+    /// als auch in einer alten Datei (Eimerpfad) auf - er zaehlt in `week`
+    /// nur einmal und gehoert wegen seines 3 Tage alten Zeitstempels in
+    /// keine Tagessumme, obwohl die ihn enthaltende zweite Datei frisch ist.
+    @Test func duplicateAcrossDetailAndBucketPathCountsOnceAndStaysOutOfToday() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let recent = now.addingTimeInterval(-60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "stale", requestID: "req_stale")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-fresh.jsonl", lines: [sameLine], mtime: recent)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.entryCount == 1)
+        #expect(snap.today.inputTokens == 0)
+    }
+
+    /// Eine unveraendert wirkende alte Datei (gleiche mtime, gleiche Groesse)
+    /// darf beim zweiten `snapshot(now:)` auf derselben Reader-Instanz nicht
+    /// erneut geparst werden - der Eimer-Cache muss den alten Wert liefern,
+    /// nicht den neuen Dateiinhalt.
+    @Test func unchangedOldFileIsNotReparsedOnSecondSnapshot() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 40)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let first = reader.snapshot(now: now)
+        #expect(first.week.totals.inputTokens == 40)
+
+        // Gleiche Stellenzahl (40 -> 70), damit die Dateigroesse unveraendert
+        // bleibt - nur mtime und Groesse entscheiden ueber einen Cache-Treffer.
+        try addTranscript(to: dir, fileName: "session.jsonl",
+                          lines: [line(timestamp: iso(threeDaysAgo), input: 70)],
+                          mtime: threeDaysAgo)
+
+        let second = reader.snapshot(now: now)
+        #expect(second.week.totals.inputTokens == 40)
+    }
+
+    /// `day` zaehlt nur den heutigen Kalendertag - ein 3 Tage alter Eintrag
+    /// darf dort nicht auftauchen, auch wenn er im Wochenfenster mitzaehlt.
+    @Test func fileOlderThanDetailWindowIsExcludedFromDayWindow() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 40)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.day.totals.entryCount == 0)
+        #expect(snap.day.totals.inputTokens == 0)
+        #expect(snap.week.totals.inputTokens == 40)
+    }
+
+    /// Der dedupKeys-Cache aus dem Eimer-Cache muss bei jedem Lauf erneut in
+    /// `seen` einfliessen - sonst kippt das Wochenergebnis zwischen zwei
+    /// Widget-Refreshes, weil beim zweiten Lauf eine der beiden Dateien
+    /// wieder als unberuecksichtigtes Duplikat auftauchen wuerde.
+    @Test func crossFileDedupIsStableAcrossTwoSnapshotRuns() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "dup2", requestID: "req_dup2")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-2.jsonl", lines: [sameLine], mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let first = reader.snapshot(now: now)
+        let second = reader.snapshot(now: now)
+
+        #expect(first.week.totals.inputTokens == 40)
+        #expect(first.week.totals.entryCount == 1)
+        #expect(second.week.totals.inputTokens == first.week.totals.inputTokens)
+        #expect(second.week.totals.entryCount == first.week.totals.entryCount)
     }
 }
 
