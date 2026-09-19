@@ -139,12 +139,13 @@ public struct UsageBlock: Equatable {
 
 // MARK: - Limit windows (day / rolling week)
 
-/// A time window with aggregated totals, used to show usage against a plan
-/// limit. This sits next to `UsageBlock` rather than replacing it: the 5h
-/// block is anchor-based (its start snaps to the full hour after a pause in
-/// activity), while a `UsageWindow` is either a calendar day or a plain
-/// gleitendes (rolling) interval. Merging both ideas into one type would be
-/// wrong, since "block start" and "window start" answer different questions.
+/// Zeitfenster mit aufsummierten Totals fuer die Limitanzeige.
+/// Steht neben `UsageBlock` und ersetzt ihn nicht: der 5-h-Block ist
+/// ankergebunden (sein Start rastet an die volle Stunde nach einer
+/// Aktivitaetspause ein), waehrend ein `UsageWindow` ein Kalendertag oder
+/// ein rollendes Intervall ist. Beides in einen Typ zu fusionieren waere
+/// falsch, weil "Block-Start" und "Fenster-Start" unterschiedliche Fragen
+/// beantworten.
 public struct UsageWindow: Equatable {
     public enum Kind: String, Equatable {
         case block
@@ -238,8 +239,9 @@ public struct ClaudeUsageSnapshot: Equatable {
     public var activeBlock: UsageBlock?
     /// Everything since local midnight.
     public var today = UsageTotals()
-    /// Kalendertag als Limitfenster (dieselbe Zeitspanne wie `today`, aber
-    /// samt Reset-Zeitpunkt fuer die Limitanzeige).
+    /// Kalendertag als Limitfenster von lokaler Mitternacht bis zur naechsten
+    /// lokalen Mitternacht, samt Reset-Zeitpunkt. `today` endet bei `now`,
+    /// dieses Fenster erst an der naechsten Mitternacht.
     public var day = UsageWindow(kind: .day, start: .distantPast, end: .distantPast)
     /// Rollendes 7-Tage-Fenster als Limitfenster.
     public var week = UsageWindow(kind: .week, start: .distantPast, end: .distantPast)
