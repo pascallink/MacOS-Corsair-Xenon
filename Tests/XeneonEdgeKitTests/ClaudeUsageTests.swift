@@ -158,6 +158,86 @@ import Testing
         #expect(window.totals.entryCount == 2)
         let expectedReset = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
         #expect(window.resetsAt == expectedReset)
+        #expect(window.start == startOfToday)
+        #expect(window.end == expectedReset)
+    }
+
+    /// Sommerzeitumstellung: 29.03.2026 hat wegen der verlorenen Stunde nur
+    /// 23 Stunden - der Calendar-Umweg in `UsageWindow.day` ist genau fuer
+    /// diesen Fall da, ein simples `+ 24h` waere hier falsch.
+    @Test func dayWindowSpansOnlyTwentyThreeHoursOnSpringForwardDST() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 29,
+                                                      hour: 14, minute: 0))!
+        let expectedStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 29,
+                                                                hour: 0, minute: 0))!
+        let expectedEnd = calendar.date(from: DateComponents(year: 2026, month: 3, day: 30,
+                                                              hour: 0, minute: 0))!
+
+        let entryJustAfterStart = entry(at: expectedStart.addingTimeInterval(60), tokens: 5)
+        let entryJustBeforeEnd = entry(at: expectedEnd.addingTimeInterval(-1), tokens: 7)
+        let entryJustBeforeStart = entry(at: expectedStart.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryJustAfterStart, entryJustBeforeEnd, entryJustBeforeStart],
+                                     now: now, calendar: calendar)
+
+        #expect(window.start == expectedStart)
+        #expect(window.end == expectedEnd)
+        #expect(window.end.timeIntervalSince(window.start) == 23 * 60 * 60)
+        #expect(window.totals.entryCount == 2)
+        #expect(window.totals.inputTokens == 12)
+    }
+
+    /// Winterzeitumstellung: 25.10.2026 hat wegen der gewonnenen Stunde 25
+    /// Stunden - der Gegenfall zur Sommerzeitumstellung.
+    @Test func dayWindowSpansTwentyFiveHoursOnFallBackDST() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 25,
+                                                      hour: 14, minute: 0))!
+        let expectedStart = calendar.date(from: DateComponents(year: 2026, month: 10, day: 25,
+                                                                hour: 0, minute: 0))!
+        let expectedEnd = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26,
+                                                              hour: 0, minute: 0))!
+
+        let entryJustAfterStart = entry(at: expectedStart.addingTimeInterval(60), tokens: 5)
+        let entryJustBeforeEnd = entry(at: expectedEnd.addingTimeInterval(-1), tokens: 7)
+        let entryJustBeforeStart = entry(at: expectedStart.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryJustAfterStart, entryJustBeforeEnd, entryJustBeforeStart],
+                                     now: now, calendar: calendar)
+
+        #expect(window.start == expectedStart)
+        #expect(window.end == expectedEnd)
+        #expect(window.end.timeIntervalSince(window.start) == 25 * 60 * 60)
+        #expect(window.totals.entryCount == 2)
+        #expect(window.totals.inputTokens == 12)
+    }
+
+    @Test func remainingWithoutResetsAtIsNil() {
+        let window = UsageWindow(kind: .week, start: .distantPast, end: .distantPast)
+        #expect(window.remaining(at: Date()) == nil)
+    }
+
+    @Test func remainingWithFutureResetsAtReturnsDifferenceInSeconds() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetsAt = now.addingTimeInterval(3600)
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, resetsAt: resetsAt)
+
+        #expect(window.remaining(at: now) == 3600)
+    }
+
+    @Test func remainingWithPastResetsAtIsClampedToZeroNotNegative() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetsAt = now.addingTimeInterval(-3600)
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, resetsAt: resetsAt)
+
+        #expect(window.remaining(at: now) == 0)
+    }
+
+    @Test func kindTitlesMatchGermanLabels() {
+        #expect(UsageWindow.Kind.block.title == "5 h")
+        #expect(UsageWindow.Kind.day.title == "Tag")
+        #expect(UsageWindow.Kind.week.title == "Woche")
     }
 
     @Test func weekWindowIncludesSixDaysExcludesEightDaysAndTheSevenDayEdge() {
