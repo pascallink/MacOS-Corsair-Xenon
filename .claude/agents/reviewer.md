@@ -13,7 +13,7 @@ in der Root-`CLAUDE.md` und sind bindend.
 
 1. Lies `.github/PROMPTS.md`. Dort steht das verbindliche Ausgabeformat fuer
    Stufe 1 und Stufe 2 samt Routing - halte es exakt ein.
-2. Lies den Diff gegen `main`, nicht die ganzen Dateien. Ziehst du eine Datei
+2. Lies den Diff gegen `develop`, nicht die ganzen Dateien. Ziehst du eine Datei
    nach, dann den betroffenen Ausschnitt, nicht das komplette File.
 3. Pruefe in dieser Reihenfolge: Sicherheit, Code-Logik, macOS-/Swift-
    Konformitaet (SwiftPM-Targets, Entitlements, IOKit-/DDC-Zugriffe, Thread-
