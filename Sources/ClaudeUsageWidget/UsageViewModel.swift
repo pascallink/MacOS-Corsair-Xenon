@@ -7,11 +7,8 @@ import XeneonEdgeKit
 
 /// Eine Zeile der Limitanzeige (5 h / Tag / Woche).
 ///
-/// `UsageWindow.Kind` deklariert nur `Equatable`, nicht `Hashable` (geprueft
-/// in ClaudeUsageModels.swift) - Identifiable braucht aber eine hashbare
-/// `id`. Deshalb `id` als `String` ueber `kind.rawValue` statt `kind`
-/// direkt, und die Hashable-Conformance NICHT nachtraeglich im Kit
-/// ergaenzen.
+/// Die `id` wird aus `kind.rawValue` gebildet, da dieser die stabile,
+/// an die JSON-Schreibweise gebundene Identitaet des Fenstertyps bietet.
 struct LimitRow: Identifiable {
     var id: String { kind.rawValue }
     let kind: UsageWindow.Kind
