@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Reviewt einen Diff gegen main auf Code-Logik, macOS-/Swift-Konformitaet, Tests und Sicherheit. Liefert das Stufe-1-Ergebnis und haengt 0 bis 2 Korrektur-Prompts an. Nutze diesen Agenten nach jeder Umsetzung, vor dem Merge.
+description: Reviewt einen Diff gegen develop auf Code-Logik, macOS-/Swift-Konformitaet, Tests und Sicherheit. Liefert das Stufe-1-Ergebnis und haengt 0 bis 2 Korrektur-Prompts an. Nutze diesen Agenten nach jeder Umsetzung, vor dem Merge.
 tools: Read, Bash, Grep, Glob
 model: opus
 ---
