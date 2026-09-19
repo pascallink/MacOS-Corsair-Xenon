@@ -584,37 +584,6 @@ struct ClaudeUsagePanel: View {
         .frame(height: 5)
     }
 
-    // MARK: Mehrprofil-Zeile: Tag/Woche als schmale Zusatzbalken
-    //
-    // Die Zeilenhoehe je Profil darf nicht wachsen - deshalb kein eigener
-    // Textblock fuer Tag/Woche, sondern zwei schmale Balken NEBEN dem
-    // bestehenden 5-h-Balken, gleiche Zeile, gleiche Hoehe. Index 0 aus
-    // `rows` wird hier bewusst nicht verwendet, der 5-h-Balken kommt
-    // weiterhin aus `main`/`mainColor` der bestehenden Kopfzeile.
-
-    private func claudeLimitBarsRow(main: Double, mainColor: Color,
-                                    rows: [ClaudeLimitRow]) -> some View {
-        let day = rows.count > 1 ? rows[1].fraction : nil
-        let week = rows.count > 2 ? rows[2].fraction : nil
-        return HStack(spacing: 4) {
-            claudeBar(fraction: max(0, min(main, 1)), color: mainColor)
-                .frame(maxWidth: .infinity)
-            claudeLimitBarSegment(day)
-            claudeLimitBarSegment(week)
-        }
-    }
-
-    private func claudeLimitBarSegment(_ fraction: Double?) -> some View {
-        Group {
-            if let fraction {
-                claudeBar(fraction: fraction, color: rowColor(fraction))
-            } else {
-                Capsule().fill(Color.white.opacity(0.05)).frame(height: 5)
-            }
-        }
-        .frame(width: 24)
-    }
-
     private func profileRow(_ usage: ClaudeUsageReader.ProfileUsage) -> some View {
         let snapshot = usage.snapshot
         let tokens = snapshot.activeBlock?.totals.billableTokens ?? 0
@@ -643,9 +612,11 @@ struct ClaudeUsagePanel: View {
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textPrimary)
             }
-            claudeLimitBarsRow(main: fraction ?? elapsed, mainColor: rowColor(fraction),
-                              rows: claudeLimitRows(for: snapshot))
+            claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
                 .frame(height: 5)
+            ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
+                claudeLimitRowView(row)
+            }
             HStack(spacing: 5) {
                 if let block = snapshot.activeBlock {
                     Text("Reset in \(UsageFormat.countdown(block.remaining(at: Date())))")
