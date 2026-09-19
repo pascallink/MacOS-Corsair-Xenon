@@ -60,10 +60,16 @@ public enum BitbucketReviewerStatus: String {
     case needsWork = "NEEDS_WORK"
 }
 
-/// Zielmuster fuer Pull Requests, z. B. `refi/develop*` oder
-/// `refi/app/develop*`. Zwei Segmente lassen das Repo offen, drei Segmente
-/// schraenken es ein. Jedes Segment darf `*` als Platzhalter fuer beliebig
-/// viele Zeichen (auch keines) enthalten, aber niemals fuer einen Slash.
+/// Zielmuster fuer Pull Requests, z. B. `refi/develop*`, `refi/app/develop*`
+/// oder `refi/app/release/1.2`. Zwei Segmente lassen das Repo offen, ab drei
+/// Segmenten schraenkt das zweite Segment das Repo ein und alle Segmente ab
+/// dem dritten bilden - mit `/` wieder zusammengefuegt - den Ziel-Branch, der
+/// damit selbst Slashes tragen darf (`release/1.2`). Ein projektweites
+/// Slash-Ziel muss das Repo deshalb ausdruecklich als `*` ausschreiben
+/// (`refi/*/release/1.*`), sonst liest `parse()` drei Segmente als Projekt,
+/// Repo und Branch - das ist die einzige eindeutige Lesart. Jedes Segment
+/// darf `*` als Platzhalter fuer beliebig viele Zeichen (auch keines)
+/// enthalten, aber niemals fuer einen Slash.
 public struct BitbucketTargetPattern: Equatable {
     private let projectPattern: String
     private let repoPattern: String?
@@ -76,11 +82,17 @@ public struct BitbucketTargetPattern: Equatable {
     }
 
     /// Parst ein Muster der Form `<projekt>/<ziel-branch>` oder
-    /// `<projekt>/<repo>/<ziel-branch>`. Ein fuehrender Slash wird
+    /// `<projekt>/<repo>/<ziel-branch>`, wobei der Ziel-Branch ab drei
+    /// Segmenten selbst Slashes enthalten darf. Ein fuehrender Slash wird
     /// geschluckt, danach wird jedes an `/` aufgeteilte Segment einzeln um
-    /// umschliessende Leerzeichen zugeschnitten. Liefert `nil` bei leerem
-    /// Muster, nach dem Zuschneiden leeren Segmenten oder einer falschen
-    /// Segmentanzahl - stuerzt niemals ab.
+    /// umschliessende Leerzeichen zugeschnitten. Bei genau zwei Segmenten
+    /// bildet das erste das Projekt und das zweite den Ziel-Branch, das Repo
+    /// bleibt offen. Ab drei Segmenten bildet das erste das Projekt, das
+    /// zweite das Repo, und alle Segmente ab dem dritten werden mit `/`
+    /// wieder zusammengefuegt und ergeben den Ziel-Branch - eine Obergrenze
+    /// fuer die Segmentzahl gibt es nicht. Liefert `nil` bei leerem Muster,
+    /// nach dem Zuschneiden leeren Segmenten oder weniger als zwei
+    /// Segmenten - stuerzt niemals ab.
     public static func parse(_ raw: String) -> BitbucketTargetPattern? {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("/") {
@@ -90,7 +102,7 @@ public struct BitbucketTargetPattern: Equatable {
 
         let segments = trimmed.components(separatedBy: "/")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard segments.count == 2 || segments.count == 3 else { return nil }
+        guard segments.count >= 2 else { return nil }
         guard segments.allSatisfy({ !$0.isEmpty }) else { return nil }
 
         if segments.count == 2 {
@@ -98,9 +110,10 @@ public struct BitbucketTargetPattern: Equatable {
                                           repoPattern: nil,
                                           targetBranchPattern: segments[1])
         }
+        let targetBranchPattern = segments[2...].joined(separator: "/")
         return BitbucketTargetPattern(projectPattern: segments[0],
                                       repoPattern: segments[1],
-                                      targetBranchPattern: segments[2])
+                                      targetBranchPattern: targetBranchPattern)
     }
 
     /// Prueft, ob der Pull Request auf dieses Muster passt. Projekt und
