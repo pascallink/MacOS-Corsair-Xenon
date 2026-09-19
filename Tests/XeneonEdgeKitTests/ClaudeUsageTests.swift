@@ -289,6 +289,105 @@ import Testing
         // 75 total tokens (including cache reads) of a 100 budget.
         #expect(window.fraction(of: 100, includeCacheReads: true) == 0.75)
     }
+
+    @Test func usageTotalsAddMergesBothTotalsFieldByField() {
+        var a = UsageTotals()
+        a.inputTokens = 10
+        a.outputTokens = 20
+        a.cacheCreationTokens = 5
+        a.cacheReadTokens = 3
+        a.costUSD = 1.5
+        a.entryCount = 2
+
+        var b = UsageTotals()
+        b.inputTokens = 100
+        b.outputTokens = 200
+        b.cacheCreationTokens = 50
+        b.cacheReadTokens = 30
+        b.costUSD = 2.5
+        b.entryCount = 4
+
+        a.add(b)
+
+        #expect(a.inputTokens == 110)
+        #expect(a.outputTokens == 220)
+        #expect(a.cacheCreationTokens == 55)
+        #expect(a.cacheReadTokens == 33)
+        #expect(abs(a.costUSD - 4.0) <= 0.001)
+        #expect(a.entryCount == 6)
+    }
+
+    @Test func hourBucketBuildsSortedBucketsPerFullHour() {
+        let baseHour = UsageBlock.floorToHour(Date(timeIntervalSince1970: 1_700_000_000))
+        let firstHourEntries = [
+            entry(at: baseHour.addingTimeInterval(60), tokens: 10),
+            entry(at: baseHour.addingTimeInterval(600), tokens: 10),
+            entry(at: baseHour.addingTimeInterval(3000), tokens: 10),
+        ]
+        let secondHourEntry = entry(at: baseHour.addingTimeInterval(3700), tokens: 10)
+
+        // Unsorted input on purpose - buckets() must sort by hour itself.
+        let buckets = HourBucket.buckets(from: [secondHourEntry] + firstHourEntries)
+
+        #expect(buckets.count == 2)
+        #expect(buckets[0].hour == UsageBlock.floorToHour(baseHour))
+        #expect(buckets[0].totals.entryCount == 3)
+        #expect(buckets[1].hour == UsageBlock.floorToHour(baseHour.addingTimeInterval(3700)))
+        #expect(buckets[1].totals.entryCount == 1)
+        #expect(buckets[0].hour < buckets[1].hour)
+        #expect(buckets[0].hour.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: 3600) == 0)
+    }
+
+    @Test func weekFromBucketsCountsBucketInsideWindowAndTodayEntry() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = UsageBlock.floorToHour(now.addingTimeInterval(-3 * 24 * 60 * 60))
+        var bucket = HourBucket(hour: threeDaysAgo)
+        bucket.totals.inputTokens = 40
+        bucket.totals.entryCount = 4
+
+        let todayEntry = entry(at: now, tokens: 8)
+
+        let window = UsageWindow.week(fromBuckets: [bucket], entries: [todayEntry], now: now)
+
+        #expect(window.kind == .week)
+        #expect(window.totals.inputTokens == 48)
+        #expect(window.totals.entryCount == 5)
+    }
+
+    @Test func weekFromBucketsExcludesBucketOlderThanFlooredWindowStart() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let flooredStart = UsageBlock.floorToHour(now.addingTimeInterval(-7 * 24 * 60 * 60))
+        var tooOld = HourBucket(hour: flooredStart.addingTimeInterval(-3600))
+        tooOld.totals.inputTokens = 999
+        tooOld.totals.entryCount = 1
+
+        let window = UsageWindow.week(fromBuckets: [tooOld], entries: [], now: now)
+
+        #expect(window.totals.inputTokens == 0)
+        #expect(window.totals.entryCount == 0)
+        #expect(window.resetsAt == nil)
+    }
+
+    @Test func weekFromBucketsResetsAtFollowsEarliestConsideredMark() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let bucketHour = UsageBlock.floorToHour(now.addingTimeInterval(-6 * 24 * 60 * 60))
+        let bucket = HourBucket(hour: bucketHour)
+        let laterEntry = entry(at: now.addingTimeInterval(-3 * 24 * 60 * 60), tokens: 1)
+
+        let window = UsageWindow.week(fromBuckets: [bucket], entries: [laterEntry], now: now)
+
+        #expect(window.resetsAt == bucketHour.addingTimeInterval(7 * 24 * 60 * 60))
+    }
+
+    @Test func weekFromBucketsWithoutBucketsOrEntriesIsEmpty() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let window = UsageWindow.week(fromBuckets: [], entries: [], now: now)
+
+        #expect(window.totals.totalTokens == 0)
+        #expect(window.totals.entryCount == 0)
+        #expect(window.resetsAt == nil)
+    }
 }
 
 @Suite struct CloudUsageFetcherTests {
