@@ -206,11 +206,35 @@ final class ClaudeSessionsModel: ObservableObject {
     }
 
     func refresh() {
-        let profiles = self.profiles
+        // configuredProfiles (nicht die gefilterte Liste) entscheidet, ob
+        // ueberhaupt Profile konfiguriert sind: leer heisst Auto-Erkennung
+        // eines Profils, wie bisher. Sind Profile konfiguriert, aber alle
+        // deaktiviert, waere die aktive Liste ebenfalls leer - das darf
+        // NICHT auf die Auto-Erkennung zurueckfallen, denn
+        // reader.snapshot(for: []) faellt selbst intern darauf zurueck.
+        // Genau wie im Widget (UsageViewModel) werden die zwei Faelle
+        // deshalb unten sauber getrennt.
+        let configuredProfiles = self.profiles
         let options = self.options
         queue.async { [weak self] in
             guard let self else { return }
-            let snapshot = self.reader.snapshot(for: profiles, options: options)
+            let snapshot: ClaudeSessionsSnapshot
+            if configuredProfiles.isEmpty {
+                // Keine Profile konfiguriert: automatisch ein Profil
+                // erkennen, unveraendertes Verhalten von vorher.
+                snapshot = self.reader.snapshot(for: [], options: options)
+            } else {
+                let active = ClaudeProfile.active(configuredProfiles)
+                if active.isEmpty {
+                    // Alle konfigurierten Profile deaktiviert: keine
+                    // Sessions. reader.snapshot(for: []) wuerde sonst auf
+                    // die Auto-Erkennung zurueckfallen - genau das
+                    // abgeschaltete Konto.
+                    snapshot = ClaudeSessionsSnapshot()
+                } else {
+                    snapshot = self.reader.snapshot(for: active, options: options)
+                }
+            }
             DispatchQueue.main.async { self.snapshot = snapshot }
         }
     }
@@ -270,7 +294,15 @@ final class ClaudeUsageModel: ObservableObject {
     /// profiles the top-level gist feeds the auto-detected profile; with
     /// profiles each one brings its own and the top-level field would be
     /// ambiguous, so it is ignored (loudly, not silently).
+    ///
+    /// `profiles` ist die urspruengliche, ungefilterte Liste - nur sie
+    /// entscheidet, ob "keine Profile konfiguriert" (Auto-Erkennung) gilt.
+    /// `activeProfiles` ist die bereits gefilterte Liste fuer den
+    /// eigentlichen Poll: ein deaktiviertes Konto darf keinen Gist-Poll
+    /// ausloesen, jede Anfrage zaehlt gegen GitHubs Limit von 60
+    /// unauthentifizierten Anfragen pro Stunde und IP.
     private static func cloudSources(profiles: [ClaudeProfile],
+                                     activeProfiles: [ClaudeProfile],
                                      gistID: String) -> [(id: UUID, gistID: String)] {
         let topLevel = gistID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !profiles.isEmpty else {
@@ -280,7 +312,7 @@ final class ClaudeUsageModel: ObservableObject {
             NSLog("XeneonEdge: cloudGistID is ignored while claudeProfiles is set — "
                 + "give the profile its own cloudGistID instead")
         }
-        return profiles.compactMap { profile in
+        return activeProfiles.compactMap { profile in
             let gist = profile.cloudGistID.trimmingCharacters(in: .whitespacesAndNewlines)
             return gist.isEmpty ? nil : (profile.id, gist)
         }
@@ -288,7 +320,8 @@ final class ClaudeUsageModel: ObservableObject {
 
     private func configureCloud(profiles: [ClaudeProfile], gistID: String,
                                 pollSeconds: Double) {
-        let sources = Self.cloudSources(profiles: profiles, gistID: gistID)
+        let active = ClaudeProfile.active(profiles)
+        let sources = Self.cloudSources(profiles: profiles, activeProfiles: active, gistID: gistID)
         let unchanged = profiles == self.profiles
             && sources.count == cloudSources.count
             && zip(sources, cloudSources).allSatisfy { $0.id == $1.id && $0.gistID == $1.gistID }
@@ -340,17 +373,34 @@ final class ClaudeUsageModel: ObservableObject {
 
     private func refresh() {
         let cloud = cloudEntries
-        let profiles = self.profiles
+        // configuredProfiles (nicht die gefilterte Liste) entscheidet, ob
+        // ueberhaupt Profile konfiguriert sind: leer heisst Auto-Erkennung
+        // eines Profils, wie bisher. Sind Profile konfiguriert, aber alle
+        // deaktiviert, waere die aktive Liste ebenfalls leer - das darf
+        // NICHT auf die Auto-Erkennung zurueckfallen, sonst zeigt das
+        // Dashboard ausgerechnet das automatisch erkannte Standardkonto,
+        // das der Nutzer abgeschaltet hat. Genau wie im Widget
+        // (UsageViewModel) werden die zwei Faelle unten sauber getrennt.
+        let configuredProfiles = self.profiles
         queue.async { [weak self] in
             guard let self else { return }
             let usages: [ClaudeUsageReader.ProfileUsage]
-            if profiles.isEmpty {
+            if configuredProfiles.isEmpty {
+                // Keine Profile konfiguriert: automatisch ein Profil
+                // erkennen, unveraendertes Verhalten von vorher.
                 let snap = self.reader.snapshot(
                     additionalEntries: cloud[Self.autoProfileID] ?? [])
                 usages = [ClaudeUsageReader.ProfileUsage(id: Self.autoProfileID,
                                                          name: "", snapshot: snap)]
             } else {
-                usages = self.reader.snapshots(for: profiles, additionalEntries: cloud)
+                let active = ClaudeProfile.active(configuredProfiles)
+                if active.isEmpty {
+                    // Alle konfigurierten Profile deaktiviert: keine
+                    // Snapshots.
+                    usages = []
+                } else {
+                    usages = self.reader.snapshots(for: active, additionalEntries: cloud)
+                }
             }
             DispatchQueue.main.async { self.profileUsages = usages }
         }

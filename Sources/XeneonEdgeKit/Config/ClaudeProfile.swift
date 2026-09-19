@@ -27,11 +27,15 @@ public struct ClaudeProfile: Codable, Equatable, Identifiable {
     /// Optional cloud relay gist for *this* profile — a remote/cloud session
     /// started under this login publishes there. Empty means local logs only.
     public var cloudGistID: String
+    /// Ein deaktiviertes Profil wird nicht gelesen, nicht gepollt und nicht
+    /// angezeigt, behaelt aber seinen Eintrag in der Konfiguration.
+    public var enabled: Bool = true
 
-    public init(name: String, configDir: String, cloudGistID: String = "") {
+    public init(name: String, configDir: String, cloudGistID: String = "", enabled: Bool = true) {
         self.name = name
         self.configDir = configDir
         self.cloudGistID = cloudGistID
+        self.enabled = enabled
     }
 
     public var directoryURL: URL {
@@ -54,5 +58,15 @@ public struct ClaudeProfile: Codable, Equatable, Identifiable {
             name = base.hasPrefix(".") ? String(base.dropFirst()) : base
         }
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? ""
+        // Default true ist die Kompatibilitaetszusage: jede bestehende
+        // claude-widget.json ohne dieses Feld verhaelt sich unveraendert.
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
+
+    /// Filtert auf aktive Profile, Reihenfolge bleibt erhalten. Genau eine
+    /// Stelle je Konsument soll filtern, damit Widget und Dashboard nicht
+    /// auseinanderlaufen.
+    public static func active(_ profiles: [ClaudeProfile]) -> [ClaudeProfile] {
+        profiles.filter { $0.enabled }
     }
 }

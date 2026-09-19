@@ -435,6 +435,25 @@ struct ClaudeSessionsPanel: View {
 
 // MARK: - Claude Code usage
 
+/// Eine Limitzeile im Dashboard-Panel (5 h / Tag / Woche).
+///
+/// Eigene, dateilokale Entsprechung zu `LimitRow` aus dem Widget-Target
+/// (`Sources/ClaudeUsageWidget/UsageViewModel.swift`): `LimitRow` liegt im
+/// Target `ClaudeUsageWidget` und ist hier wegen der Targetgrenze nicht
+/// sichtbar, ein Import ist nicht moeglich. Ein gemeinsamer Typ gehoerte ins
+/// Kit (`XeneonEdgeKit`) und waere ein eigener Umbau - hier nur die kleine
+/// Kopie der Logik, die dieses Panel braucht.
+private struct ClaudeLimitRow: Identifiable {
+    let id: String
+    let title: String
+    let tokens: Int
+    /// Anteil des Budgets, 0.0 = leer. Nil, wenn kein Budget gesetzt ist.
+    /// Bewusst NICHT auf 1.0 geklemmt - die Darstellung klemmt die
+    /// Balkenbreite selbst, wie im Widget.
+    let fraction: Double?
+    let resetText: String
+}
+
 struct ClaudeUsagePanel: View {
     @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var configStore: ConfigStore
@@ -492,6 +511,79 @@ struct ClaudeUsagePanel: View {
         return Color(red: 0.35, green: 0.80, blue: 0.45)
     }
 
+    // MARK: Limitzeilen (5 h / Tag / Woche)
+    //
+    // Faerbung ueber `rowColor` statt einer eigenen Schwelle: derselbe
+    // Fuellstand darf nicht an einer Stelle im Panel `good` und an einer
+    // anderen schon `warn` sein - genau das war ein Review-Befund im Widget.
+
+    /// Baut die drei Limitzeilen aus einem Snapshot, Reihenfolge 5 h/Tag/Woche.
+    /// Tokenwahl einheitlich `billableTokens` (wie der 5-h-Ring bisher), das
+    /// Panel hat keinen includeCacheReads-Schalter.
+    private func claudeLimitRows(for snapshot: ClaudeUsageSnapshot) -> [ClaudeLimitRow] {
+        let blockTokens = snapshot.activeBlock?.totals.billableTokens ?? 0
+        let blockBudget = configStore.config.claudeTokenBudgetPerBlock
+        let blockFraction: Double? = blockBudget > 0 ? Double(blockTokens) / Double(blockBudget) : nil
+        // Derselbe Platzhalter wie bei Tag und Woche: der Hinweis auf die
+        // fehlende Session steht bereits im Kopfblock des Panels, und ein
+        // ganzer Satz in dieser schmalen Zeile verdraengt den Balken.
+        let blockReset = snapshot.activeBlock.map {
+            UsageFormat.countdown($0.remaining(at: Date()))
+        } ?? "—"
+        let blockRow = ClaudeLimitRow(id: "block", title: UsageWindow.Kind.block.title,
+                                      tokens: blockTokens, fraction: blockFraction,
+                                      resetText: blockReset)
+        let dayRow = claudeLimitRow(for: snapshot.day,
+                                    budget: configStore.config.claudeTokenBudgetPerDay)
+        let weekRow = claudeLimitRow(for: snapshot.week,
+                                     budget: configStore.config.claudeTokenBudgetPerWeek)
+        return [blockRow, dayRow, weekRow]
+    }
+
+    /// Baut eine Limitzeile aus einem `UsageWindow` (Tag/Woche).
+    private func claudeLimitRow(for window: UsageWindow, budget: Int) -> ClaudeLimitRow {
+        let tokens = window.totals.billableTokens
+        let fraction = budget > 0 ? window.fraction(of: budget, includeCacheReads: false) : nil
+        let resetText = window.remaining(at: Date()).map { UsageFormat.countdown($0) } ?? "—"
+        return ClaudeLimitRow(id: window.kind.rawValue, title: window.kind.title,
+                              tokens: tokens, fraction: fraction, resetText: resetText)
+    }
+
+    private func claudeLimitRowView(_ row: ClaudeLimitRow) -> some View {
+        HStack(spacing: 8) {
+            Text(row.title)
+                .font(.system(size: 12))
+                .foregroundColor(EdgeTheme.textSecondary)
+                .frame(width: 40, alignment: .leading)
+            if let fraction = row.fraction {
+                claudeBar(fraction: fraction, color: rowColor(fraction))
+            } else {
+                Spacer(minLength: 0)
+            }
+            Text(UsageFormat.tokens(row.tokens))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(EdgeTheme.textPrimary)
+            Text(row.resetText)
+                .font(.system(size: 11))
+                .foregroundColor(EdgeTheme.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    private func claudeBar(fraction: Double, color: Color) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.10))
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(0, min(fraction, 1)) * geometry.size.width)
+            }
+        }
+        .frame(height: 5)
+    }
+
     private func profileRow(_ usage: ClaudeUsageReader.ProfileUsage) -> some View {
         let snapshot = usage.snapshot
         let tokens = snapshot.activeBlock?.totals.billableTokens ?? 0
@@ -520,15 +612,11 @@ struct ClaudeUsagePanel: View {
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textPrimary)
             }
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.10))
-                    Capsule()
-                        .fill(rowColor(fraction))
-                        .frame(width: (fraction ?? elapsed) * geometry.size.width)
-                }
+            claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
+                .frame(height: 5)
+            ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
+                claudeLimitRowView(row)
             }
-            .frame(height: 5)
             HStack(spacing: 5) {
                 if let block = snapshot.activeBlock {
                     Text("Reset in \(UsageFormat.countdown(block.remaining(at: Date())))")
@@ -555,6 +643,7 @@ struct ClaudeUsagePanel: View {
     }
 
     private var singleProfile: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 16) {
                 ZStack {
                     Circle().stroke(Color.white.opacity(0.10), lineWidth: 9)
@@ -614,6 +703,12 @@ struct ClaudeUsagePanel: View {
                 }
                 Spacer(minLength: 0)
             }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(claudeLimitRows(for: claude.snapshot)) { row in
+                    claudeLimitRowView(row)
+                }
+            }
+        }
     }
 }
 

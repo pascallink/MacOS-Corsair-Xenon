@@ -75,6 +75,240 @@ import Testing
     }
 }
 
+// MARK: - Staggered scan (detail path vs. bucket path)
+
+@Suite struct ClaudeUsageReaderWindowTests {
+    private func line(timestamp: String, model: String = "claude-opus-5",
+                      input: Int = 10, output: Int = 20,
+                      cacheWrite: Int = 0, cacheRead: Int = 0,
+                      messageID: String = "msg_1", requestID: String = "req_1") -> String {
+        """
+        {"type":"assistant","timestamp":"\(timestamp)","requestId":"\(requestID)",\
+        "message":{"id":"\(messageID)","model":"\(model)","usage":{"input_tokens":\(input),\
+        "output_tokens":\(output),"cache_creation_input_tokens":\(cacheWrite),\
+        "cache_read_input_tokens":\(cacheRead)}}}
+        """
+    }
+
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    /// Legt `<tmp>/projects/<projectDir>/<file>.jsonl` an, schreibt die
+    /// gegebenen Zeilen hinein und setzt die Datei-mtime explizit - die
+    /// Testfaelle haengen davon ab, ob eine Datei im Detail- oder
+    /// Eimerfenster liegt, nicht davon, wann sie tatsaechlich geschrieben
+    /// wurde.
+    private func makeTranscript(lines: [String], mtime: Date) throws -> URL {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xeneon-window-\(UUID().uuidString)")
+        try addTranscript(to: base, fileName: "session.jsonl", lines: lines, mtime: mtime)
+        return base
+    }
+
+    /// Schreibt ein weiteres Transkript in ein bestehendes Basisverzeichnis -
+    /// fuer Testfaelle, die mehrere Dateien mit je eigenem Dateinamen und
+    /// eigener mtime im selben Scan brauchen (dateiuebergreifende Duplikate,
+    /// Eimer-Cache). Ruft man denselben `fileName` erneut auf, wird die
+    /// bestehende Datei ueberschrieben - so laesst sich derselbe Pfad mit
+    /// neuem Inhalt, aber gleicher mtime praeparieren.
+    private func addTranscript(to base: URL, fileName: String, lines: [String], mtime: Date) throws {
+        let projects = base.appendingPathComponent("projects/demo")
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let file = projects.appendingPathComponent(fileName)
+        try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: file.path)
+    }
+
+    /// Eine Datei, deren mtime und Eintraege beide 3 Tage alt sind, liegt
+    /// ausserhalb des 30h-Detailfensters, aber innerhalb des Wochenfensters:
+    /// ihre Tokens tauchen in `week` auf, aber weder in `activeBlock` noch
+    /// in `today`, weil beide nur aus dem Detailpfad gespeist werden.
+    @Test func fileOlderThanDetailWindowFeedsWeekOnlyNotBlockOrToday() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 50)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 50)
+        #expect(snap.activeBlock == nil)
+        #expect(snap.today.inputTokens == 0)
+    }
+
+    /// Eine frische Datei mit heutigen Eintraegen landet im Detailpfad und
+    /// zaehlt ueberall: `today`, `day` und `week`.
+    @Test func freshFileFeedsTodayDayAndWeek() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let recent = now.addingTimeInterval(-60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(recent), input: 30)],
+            mtime: recent)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.today.inputTokens == 30)
+        #expect(snap.day.totals.inputTokens == 30)
+        #expect(snap.week.totals.inputTokens == 30)
+    }
+
+    /// Eine Datei mit einer mtime von vor 10 Tagen liegt ausserhalb des
+    /// 7-Tage-Eimerfensters (plus Puffer) und taucht nirgends auf - weder im
+    /// Detail- noch im Verdichtungspfad wird sie ueberhaupt angefasst.
+    @Test func fileOlderThanBucketWindowIsIgnoredEntirely() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tenDaysAgo = now.addingTimeInterval(-10 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(tenDaysAgo), input: 999)],
+            mtime: tenDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 0)
+        #expect(snap.today.inputTokens == 0)
+        #expect(snap.activeBlock == nil)
+    }
+
+    /// Derselbe messageID/requestID zweimal in einer alten, verdichteten
+    /// Datei (typisch fuer gestreamte Antworten) darf im Verdichtungspfad
+    /// nur einmal zaehlen - dieselbe Dedupe-Garantie wie im Detailpfad, nur
+    /// innerhalb dieser einen Datei statt ueber alle Dateien hinweg.
+    @Test func duplicateEntryInOldFileCountsOnceInWeekBucket() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [
+                line(timestamp: iso(threeDaysAgo), input: 40, messageID: "dup", requestID: "req_dup"),
+                line(timestamp: iso(threeDaysAgo), input: 40, messageID: "dup", requestID: "req_dup"),
+            ],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 40)
+        #expect(snap.week.totals.entryCount == 1)
+    }
+
+    /// Zwei getrennte Dateien mit demselben messageID+requestID duerfen im
+    /// Wochenfenster nur einmal zaehlen - die Zusage, dass `seen` auch
+    /// dateiuebergreifend dedupliziert, nicht nur innerhalb einer Datei.
+    @Test func duplicateAcrossTwoOldFilesCountsOnceInWeek() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "cross", requestID: "req_cross")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-2.jsonl", lines: [sameLine], mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.inputTokens == 40)
+        #expect(snap.week.totals.entryCount == 1)
+    }
+
+    /// Derselbe Eintrag taucht sowohl in einer frischen Datei (Detailpfad)
+    /// als auch in einer alten Datei (Eimerpfad) auf - er zaehlt in `week`
+    /// nur einmal und gehoert wegen seines 3 Tage alten Zeitstempels in
+    /// keine Tagessumme, obwohl die ihn enthaltende zweite Datei frisch ist.
+    @Test func duplicateAcrossDetailAndBucketPathCountsOnceAndStaysOutOfToday() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let recent = now.addingTimeInterval(-60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "stale", requestID: "req_stale")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-fresh.jsonl", lines: [sameLine], mtime: recent)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.week.totals.entryCount == 1)
+        #expect(snap.today.inputTokens == 0)
+    }
+
+    /// Eine unveraendert wirkende alte Datei (gleiche mtime, gleiche Groesse)
+    /// darf beim zweiten `snapshot(now:)` auf derselben Reader-Instanz nicht
+    /// erneut geparst werden - der Eimer-Cache muss den alten Wert liefern,
+    /// nicht den neuen Dateiinhalt.
+    @Test func unchangedOldFileIsNotReparsedOnSecondSnapshot() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 40)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let first = reader.snapshot(now: now)
+        #expect(first.week.totals.inputTokens == 40)
+
+        // Gleiche Stellenzahl (40 -> 70), damit die Dateigroesse unveraendert
+        // bleibt - nur mtime und Groesse entscheiden ueber einen Cache-Treffer.
+        try addTranscript(to: dir, fileName: "session.jsonl",
+                          lines: [line(timestamp: iso(threeDaysAgo), input: 70)],
+                          mtime: threeDaysAgo)
+
+        let second = reader.snapshot(now: now)
+        #expect(second.week.totals.inputTokens == 40)
+    }
+
+    /// `day` zaehlt nur den heutigen Kalendertag - ein 3 Tage alter Eintrag
+    /// darf dort nicht auftauchen, auch wenn er im Wochenfenster mitzaehlt.
+    @Test func fileOlderThanDetailWindowIsExcludedFromDayWindow() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let dir = try makeTranscript(
+            lines: [line(timestamp: iso(threeDaysAgo), input: 40)],
+            mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let snap = reader.snapshot(now: now)
+
+        #expect(snap.day.totals.entryCount == 0)
+        #expect(snap.day.totals.inputTokens == 0)
+        #expect(snap.week.totals.inputTokens == 40)
+    }
+
+    /// Der dedupKeys-Cache aus dem Eimer-Cache muss bei jedem Lauf erneut in
+    /// `seen` einfliessen - sonst kippt das Wochenergebnis zwischen zwei
+    /// Widget-Refreshes, weil beim zweiten Lauf eine der beiden Dateien
+    /// wieder als unberuecksichtigtes Duplikat auftauchen wuerde.
+    @Test func crossFileDedupIsStableAcrossTwoSnapshotRuns() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let sameLine = line(timestamp: iso(threeDaysAgo), input: 40,
+                            messageID: "dup2", requestID: "req_dup2")
+        let dir = try makeTranscript(lines: [sameLine], mtime: threeDaysAgo)
+        try addTranscript(to: dir, fileName: "session-2.jsonl", lines: [sameLine], mtime: threeDaysAgo)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let reader = ClaudeUsageReader(configDirectories: [dir])
+        let first = reader.snapshot(now: now)
+        let second = reader.snapshot(now: now)
+
+        #expect(first.week.totals.inputTokens == 40)
+        #expect(first.week.totals.entryCount == 1)
+        #expect(second.week.totals.inputTokens == first.week.totals.inputTokens)
+        #expect(second.week.totals.entryCount == first.week.totals.entryCount)
+    }
+}
+
 @Suite struct UsageBlockTests {
     private func entry(atMinutes minutes: Double, tokens: Int = 10) -> ClaudeUsageEntry {
         ClaudeUsageEntry(timestamp: Date(timeIntervalSince1970: 1_000_000_000 + minutes * 60),
@@ -126,6 +360,267 @@ import Testing
         ])
         #expect(blocks.count == 1)
         #expect(blocks[0].totals.entryCount == 3)
+    }
+}
+
+@Suite struct UsageWindowTests {
+    private var berlin: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Berlin")!
+        return calendar
+    }
+
+    private func entry(at date: Date, tokens: Int = 10) -> ClaudeUsageEntry {
+        ClaudeUsageEntry(timestamp: date, model: "claude-opus-5", inputTokens: tokens,
+                         outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0)
+    }
+
+    @Test func dayWindowExcludesYesterdayAndSetsNextMidnightAsReset() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 8, day: 23,
+                                                      hour: 14, minute: 0))!
+        let startOfToday = calendar.startOfDay(for: now)
+        let entryEarlyToday = entry(at: startOfToday.addingTimeInterval(60), tokens: 5)
+        let entryLaterToday = entry(at: now, tokens: 7)
+        let entryJustBeforeMidnight = entry(at: startOfToday.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryEarlyToday, entryLaterToday, entryJustBeforeMidnight],
+                                     now: now, calendar: calendar)
+
+        #expect(window.kind == .day)
+        #expect(window.totals.inputTokens == 12)
+        #expect(window.totals.entryCount == 2)
+        let expectedReset = calendar.date(byAdding: .day, value: 1, to: startOfToday)!
+        #expect(window.resetsAt == expectedReset)
+        #expect(window.start == startOfToday)
+        #expect(window.end == expectedReset)
+    }
+
+    /// Sommerzeitumstellung: 29.03.2026 hat wegen der verlorenen Stunde nur
+    /// 23 Stunden - der Calendar-Umweg in `UsageWindow.day` ist genau fuer
+    /// diesen Fall da, ein simples `+ 24h` waere hier falsch.
+    @Test func dayWindowSpansOnlyTwentyThreeHoursOnSpringForwardDST() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 29,
+                                                      hour: 14, minute: 0))!
+        let expectedStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 29,
+                                                                hour: 0, minute: 0))!
+        let expectedEnd = calendar.date(from: DateComponents(year: 2026, month: 3, day: 30,
+                                                              hour: 0, minute: 0))!
+
+        let entryJustAfterStart = entry(at: expectedStart.addingTimeInterval(60), tokens: 5)
+        let entryJustBeforeEnd = entry(at: expectedEnd.addingTimeInterval(-1), tokens: 7)
+        let entryJustBeforeStart = entry(at: expectedStart.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryJustAfterStart, entryJustBeforeEnd, entryJustBeforeStart],
+                                     now: now, calendar: calendar)
+
+        #expect(window.start == expectedStart)
+        #expect(window.end == expectedEnd)
+        #expect(window.end.timeIntervalSince(window.start) == 23 * 60 * 60)
+        #expect(window.totals.entryCount == 2)
+        #expect(window.totals.inputTokens == 12)
+    }
+
+    /// Winterzeitumstellung: 25.10.2026 hat wegen der gewonnenen Stunde 25
+    /// Stunden - der Gegenfall zur Sommerzeitumstellung.
+    @Test func dayWindowSpansTwentyFiveHoursOnFallBackDST() {
+        let calendar = berlin
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 25,
+                                                      hour: 14, minute: 0))!
+        let expectedStart = calendar.date(from: DateComponents(year: 2026, month: 10, day: 25,
+                                                                hour: 0, minute: 0))!
+        let expectedEnd = calendar.date(from: DateComponents(year: 2026, month: 10, day: 26,
+                                                              hour: 0, minute: 0))!
+
+        let entryJustAfterStart = entry(at: expectedStart.addingTimeInterval(60), tokens: 5)
+        let entryJustBeforeEnd = entry(at: expectedEnd.addingTimeInterval(-1), tokens: 7)
+        let entryJustBeforeStart = entry(at: expectedStart.addingTimeInterval(-1), tokens: 99)
+
+        let window = UsageWindow.day(from: [entryJustAfterStart, entryJustBeforeEnd, entryJustBeforeStart],
+                                     now: now, calendar: calendar)
+
+        #expect(window.start == expectedStart)
+        #expect(window.end == expectedEnd)
+        #expect(window.end.timeIntervalSince(window.start) == 25 * 60 * 60)
+        #expect(window.totals.entryCount == 2)
+        #expect(window.totals.inputTokens == 12)
+    }
+
+    @Test func remainingWithoutResetsAtIsNil() {
+        let window = UsageWindow(kind: .week, start: .distantPast, end: .distantPast)
+        #expect(window.remaining(at: Date()) == nil)
+    }
+
+    @Test func remainingWithFutureResetsAtReturnsDifferenceInSeconds() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetsAt = now.addingTimeInterval(3600)
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, resetsAt: resetsAt)
+
+        #expect(window.remaining(at: now) == 3600)
+    }
+
+    @Test func remainingWithPastResetsAtIsClampedToZeroNotNegative() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetsAt = now.addingTimeInterval(-3600)
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, resetsAt: resetsAt)
+
+        #expect(window.remaining(at: now) == 0)
+    }
+
+    @Test func kindTitlesMatchGermanLabels() {
+        #expect(UsageWindow.Kind.block.title == "5 h")
+        #expect(UsageWindow.Kind.day.title == "Tag")
+        #expect(UsageWindow.Kind.week.title == "Woche")
+    }
+
+    @Test func weekWindowIncludesSixDaysExcludesEightDaysAndTheSevenDayEdge() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let sixDaysAgo = now.addingTimeInterval(-6 * 24 * 60 * 60)
+        let eightDaysAgo = now.addingTimeInterval(-8 * 24 * 60 * 60)
+        let exactlySevenDaysAgo = now.addingTimeInterval(-7 * 24 * 60 * 60)
+
+        let window = UsageWindow.week(from: [
+            entry(at: sixDaysAgo, tokens: 3),
+            entry(at: eightDaysAgo, tokens: 100),
+            entry(at: exactlySevenDaysAgo, tokens: 200),
+        ], now: now)
+
+        #expect(window.kind == .week)
+        #expect(window.totals.inputTokens == 3)
+        #expect(window.totals.entryCount == 1)
+    }
+
+    @Test func weekWindowResetsAtOldestConsideredEntryPlusSevenDays() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let sixDaysAgo = now.addingTimeInterval(-6 * 24 * 60 * 60)
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+
+        let window = UsageWindow.week(from: [entry(at: sixDaysAgo), entry(at: threeDaysAgo)],
+                                      now: now)
+
+        #expect(window.resetsAt == sixDaysAgo.addingTimeInterval(7 * 24 * 60 * 60))
+    }
+
+    @Test func emptyWindowHasNoTokensNoResetAndNoFraction() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let window = UsageWindow.week(from: [], now: now)
+
+        #expect(window.totals.totalTokens == 0)
+        #expect(window.resetsAt == nil)
+        #expect(window.fraction(of: 0, includeCacheReads: false) == nil)
+    }
+
+    @Test func fractionUsesBillableTokensByDefaultAndTotalTokensWithCacheReads() {
+        var totals = UsageTotals()
+        totals.inputTokens = 30
+        totals.outputTokens = 20
+        totals.cacheReadTokens = 25
+        let window = UsageWindow(kind: .day, start: .distantPast, end: .distantPast, totals: totals)
+
+        // 50 billable tokens of a 100 budget.
+        #expect(window.fraction(of: 100, includeCacheReads: false) == 0.5)
+        // 75 total tokens (including cache reads) of a 100 budget.
+        #expect(window.fraction(of: 100, includeCacheReads: true) == 0.75)
+    }
+
+    @Test func usageTotalsAddMergesBothTotalsFieldByField() {
+        var a = UsageTotals()
+        a.inputTokens = 10
+        a.outputTokens = 20
+        a.cacheCreationTokens = 5
+        a.cacheReadTokens = 3
+        a.costUSD = 1.5
+        a.entryCount = 2
+
+        var b = UsageTotals()
+        b.inputTokens = 100
+        b.outputTokens = 200
+        b.cacheCreationTokens = 50
+        b.cacheReadTokens = 30
+        b.costUSD = 2.5
+        b.entryCount = 4
+
+        a.add(b)
+
+        #expect(a.inputTokens == 110)
+        #expect(a.outputTokens == 220)
+        #expect(a.cacheCreationTokens == 55)
+        #expect(a.cacheReadTokens == 33)
+        #expect(abs(a.costUSD - 4.0) <= 0.001)
+        #expect(a.entryCount == 6)
+    }
+
+    @Test func hourBucketBuildsSortedBucketsPerFullHour() {
+        let baseHour = UsageBlock.floorToHour(Date(timeIntervalSince1970: 1_700_000_000))
+        let firstHourEntries = [
+            entry(at: baseHour.addingTimeInterval(60), tokens: 10),
+            entry(at: baseHour.addingTimeInterval(600), tokens: 10),
+            entry(at: baseHour.addingTimeInterval(3000), tokens: 10),
+        ]
+        let secondHourEntry = entry(at: baseHour.addingTimeInterval(3700), tokens: 10)
+
+        // Unsorted input on purpose - buckets() must sort by hour itself.
+        let buckets = HourBucket.buckets(from: [secondHourEntry] + firstHourEntries)
+
+        #expect(buckets.count == 2)
+        #expect(buckets[0].hour == UsageBlock.floorToHour(baseHour))
+        #expect(buckets[0].totals.entryCount == 3)
+        #expect(buckets[1].hour == UsageBlock.floorToHour(baseHour.addingTimeInterval(3700)))
+        #expect(buckets[1].totals.entryCount == 1)
+        #expect(buckets[0].hour < buckets[1].hour)
+        #expect(buckets[0].hour.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: 3600) == 0)
+    }
+
+    @Test func weekFromBucketsCountsBucketInsideWindowAndTodayEntry() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let threeDaysAgo = UsageBlock.floorToHour(now.addingTimeInterval(-3 * 24 * 60 * 60))
+        var bucket = HourBucket(hour: threeDaysAgo)
+        bucket.totals.inputTokens = 40
+        bucket.totals.entryCount = 4
+
+        let todayEntry = entry(at: now, tokens: 8)
+
+        let window = UsageWindow.week(fromBuckets: [bucket], entries: [todayEntry], now: now)
+
+        #expect(window.kind == .week)
+        #expect(window.totals.inputTokens == 48)
+        #expect(window.totals.entryCount == 5)
+    }
+
+    @Test func weekFromBucketsExcludesBucketOlderThanFlooredWindowStart() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let flooredStart = UsageBlock.floorToHour(now.addingTimeInterval(-7 * 24 * 60 * 60))
+        var tooOld = HourBucket(hour: flooredStart.addingTimeInterval(-3600))
+        tooOld.totals.inputTokens = 999
+        tooOld.totals.entryCount = 1
+
+        let window = UsageWindow.week(fromBuckets: [tooOld], entries: [], now: now)
+
+        #expect(window.totals.inputTokens == 0)
+        #expect(window.totals.entryCount == 0)
+        #expect(window.resetsAt == nil)
+    }
+
+    @Test func weekFromBucketsResetsAtFollowsEarliestConsideredMark() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let bucketHour = UsageBlock.floorToHour(now.addingTimeInterval(-6 * 24 * 60 * 60))
+        let bucket = HourBucket(hour: bucketHour)
+        let laterEntry = entry(at: now.addingTimeInterval(-3 * 24 * 60 * 60), tokens: 1)
+
+        let window = UsageWindow.week(fromBuckets: [bucket], entries: [laterEntry], now: now)
+
+        #expect(window.resetsAt == bucketHour.addingTimeInterval(7 * 24 * 60 * 60))
+    }
+
+    @Test func weekFromBucketsWithoutBucketsOrEntriesIsEmpty() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let window = UsageWindow.week(fromBuckets: [], entries: [], now: now)
+
+        #expect(window.totals.totalTokens == 0)
+        #expect(window.totals.entryCount == 0)
+        #expect(window.resetsAt == nil)
     }
 }
 
@@ -398,6 +893,62 @@ import Testing
         #expect(decoded.claudeProfiles[0].name == "claude-work")
         #expect(decoded.claudeProfiles[0].configDir == "~/.claude-work")
         #expect(decoded.claudeProfiles[0].cloudGistID == "")
+        // Die Kurzform bleibt gueltig und ist standardmaessig aktiv.
+        #expect(decoded.claudeProfiles[0].enabled == true)
+    }
+
+    /// Bestehende Konfigurationen ohne `enabled` verhalten sich unveraendert:
+    /// das Profil bleibt aktiv.
+    @Test func profileWithoutEnabledDecodesToEnabled() throws {
+        let json = #"{"claudeProfiles": [{"name": "Privat", "configDir": "~/.claude"}]}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles[0].enabled == true)
+    }
+
+    /// `"enabled": false` schaltet ein Profil ab, ohne seine Konfiguration
+    /// zu verlieren.
+    @Test func profileWithEnabledFalseDecodesToDisabled() throws {
+        let json = #"{"claudeProfiles": [{"name": "Team", "configDir": "~/.claude-team", "enabled": false}]}"#
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(decoded.claudeProfiles[0].enabled == false)
+        #expect(decoded.claudeProfiles[0].name == "Team")
+        #expect(decoded.claudeProfiles[0].configDir == "~/.claude-team")
+    }
+
+    /// `active(_:)` filtert deaktivierte Profile heraus und erhaelt die
+    /// Reihenfolge der uebrigen.
+    @Test func activeFiltersDisabledProfilesAndKeepsOrder() {
+        let maxPlan = ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: true)
+        let team = ClaudeProfile(name: "Team", configDir: "~/.claude-team", enabled: false)
+        let pro = ClaudeProfile(name: "Pro", configDir: "~/.claude-pro", enabled: true)
+
+        let active = ClaudeProfile.active([maxPlan, team, pro])
+        #expect(active.count == 2)
+        #expect(active[0].name == "Max")
+        #expect(active[1].name == "Pro")
+    }
+
+    /// Sind alle konfigurierten Profile deaktiviert, liefert `active` eine
+    /// leere Liste. Das leere Ergebnis heisst hier ausdruecklich NICHT
+    /// "keine Profile konfiguriert": Widget und Dashboard unterscheiden
+    /// beide Faelle und duerfen daraus keine Auto-Erkennung ableiten, sonst
+    /// zeigen sie genau das Konto, das abgeschaltet wurde.
+    @Test func activeReturnsEmptyWhenEveryProfileIsDisabled() {
+        let profiles = [
+            ClaudeProfile(name: "Max", configDir: "~/.claude", enabled: false),
+            ClaudeProfile(name: "Pro", configDir: "~/.claude-pro", enabled: false)
+        ]
+
+        #expect(ClaudeProfile.active(profiles).isEmpty)
+    }
+
+    /// Round-trip: ein deaktiviertes Profil bleibt nach Encode/Decode
+    /// deaktiviert.
+    @Test func disabledProfileSurvivesEncodeDecodeRoundTrip() throws {
+        let profile = ClaudeProfile(name: "Team", configDir: "~/.claude-team", enabled: false)
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try JSONDecoder().decode(ClaudeProfile.self, from: data)
+        #expect(decoded.enabled == false)
     }
 
     @Test func profileTildeIsExpanded() {

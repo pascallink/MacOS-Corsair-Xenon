@@ -11,7 +11,7 @@ Kosten (Fenster + heute) · In/Out/Cache-Tokens · Modell-Badge · Plan-Badge
 
 | Metrik | Quelle |
 |---|---|
-| **Token-Verbrauch im 5-h-Fenster** + verbleibende Zeit bis zum Reset | `~/.claude/projects/**/*.jsonl` — jede Assistant-Antwort enthält dort ihre Token-Zählung; die Fenster werden wie bei den Claude-Plänen in 5-Stunden-Blöcken gruppiert (an der vollen Stunde der ersten Nachricht verankert, wie beim ccusage-Community-Tool) |
+| **Token-Verbrauch je Limitfenster** (5 h, Tag, Woche) + verbleibende Zeit bis zum jeweiligen Reset | `~/.claude/projects/**/*.jsonl` — jede Assistant-Antwort enthält dort ihre Token-Zählung; der 5-h-Block wird wie bei den Claude-Plänen gruppiert (an der vollen Stunde der ersten Nachricht verankert, wie beim ccusage-Community-Tool), der Tag läuft von lokaler Mitternacht zu lokaler Mitternacht, die Woche rollt über die letzten 7×24 Stunden (siehe „Die drei Limitfenster") |
 | **Geschätzte Kosten** (aktuelles Fenster + heute) | Tokenzahlen × Preistabelle (Opus 5: $5/$25, Sonnet: $3/$15, Haiku 4.5: $1/$5, Fable 5: $10/$50 pro Mio. Tokens; Cache-Write ≈ 1,25×, Cache-Read ≈ 0,1× Input). Bei Abo-Plänen sind das *Gegenwerte*, keine echte Rechnung |
 | **Modus/Modell** (Opus / Sonnet / Haiku / Fable) | Modell-ID der letzten Assistant-Antwort |
 | **Offene Chats** (aktiv / mit Frage / offen-inaktiv) + zuletzt offene Frage | `~/.claude/projects/**/*.jsonl` — aus dem Ende jedes Transkripts wird abgeleitet, ob Claude noch arbeitet, auf eine Antwort wartet oder der Chat nur offen herumliegt (siehe „Chat-Übersicht") |
@@ -23,15 +23,47 @@ Eingabemonitoring, keine Bedienungshilfen) — es liest nur Dateien im eigenen
 Benutzerordner. Nur wer den optionalen Cloud-Relay (siehe unten) explizit
 einrichtet, macht davon eine Ausnahme.
 
+## Die drei Limitfenster
+
+Das Widget führt drei Fenster nebeneinander, jedes mit eigenem Tokenstand und
+eigenem Reset:
+
+| Fenster | Grenzen | Reset |
+|---|---|---|
+| **5 h** | Block ab der vollen Stunde der ersten Nachricht nach einer Pause | Ende des Blocks |
+| **Tag** | lokale Mitternacht bis lokale Mitternacht | nächste Mitternacht |
+| **Woche** | rollend, die letzten 7×24 Stunden ab jetzt | wenn der älteste noch gezählte Eintrag aus dem Fenster fällt |
+
+Die Woche rollt, sie springt nicht: Es gibt keinen festen Wochenanfang, an
+dem alles auf null geht. Stattdessen gibt der Countdown an, wann wieder
+Budget frei wird, weil der älteste Beitrag hinten herausfällt.
+
+**Wie das gelesen wird — und warum es den Mac nicht ausbremst:** Ein
+Wochenfenster umfasst rund das Sechsfache an Transkriptmaterial wie die
+bisherige Tagesansicht, und das Widget aktualisiert alle 45 Sekunden. Der
+Reader liest deshalb gestaffelt: Dateien der letzten 30 Stunden werden voll
+geparst (daraus entstehen 5-h-Block und Tag), alles Ältere bis zur
+Wochengrenze wird beim ersten Lesen zu Stundensummen verdichtet und nur noch
+in dieser Form gehalten. Abgeschlossene Stunden werden dadurch genau einmal
+gelesen. Preis dieser Verdichtung: die Wochenkante liegt auf die Stunde
+genau statt auf die Sekunde, und die älteste angebrochene Stunde zählt ganz
+mit — das Widget zeigt im Zweifel eher zu viel als zu wenig, was bei einer
+Limitanzeige die sichere Richtung ist.
+
 ## Zwei Betriebsarten
 
 1. **Panel im XeneonEdge-Dashboard (integriert):** In der Menüleiste der
    XeneonEdge-App → **Widgets → Claude-Nutzung** einschalten. Das
-   „Claude“-Panel erscheint sofort in der mittleren Spalte (Ring,
-   Reset-Countdown, Kosten, Modell-Badge) — kein Neustart, kein Editieren
-   von JSON. Optional `"claudeTokenBudgetPerBlock"` in der `config.json`
-   setzen (siehe unten), damit der Ring den Budget-Verbrauch statt der Zeit
-   zeigt; danach „Konfiguration neu laden“ wählen.
+   „Claude“-Panel erscheint sofort in der mittleren Spalte (Ring, die drei
+   Limitzeilen für 5 h, Tag und Woche, Reset-Countdown, Kosten,
+   Modell-Badge) — kein Neustart, kein Editieren von JSON. Optional
+   `"claudeTokenBudgetPerBlock"`, `"claudeTokenBudgetPerDay"` und
+   `"claudeTokenBudgetPerWeek"` in der `config.json` setzen (siehe unten):
+   das erste lässt den Ring den Budget-Verbrauch statt der Zeit zeigen, die
+   beiden anderen schalten die Balken für Tag und rollende Woche frei. `0`
+   (Standard) heißt jeweils: kein Balken für dieses Fenster, Zahl und Reset
+   stehen trotzdem da. Die drei Werte werden unabhängig voneinander
+   kalibriert. Danach „Konfiguration neu laden“ wählen.
 2. **Eigenständiges Floating-Widget** (`ClaudeUsageWidget.app`) — z. B. wenn das
    große Dashboard aus ist und das Edge als normaler Monitor läuft. Beide
    können auch parallel laufen.
@@ -71,6 +103,8 @@ Menüleiste „Konfiguration neu laden“ wählen):
 {
   "refreshSeconds": 45,
   "tokenBudgetPerBlock": 0,
+  "tokenBudgetPerDay": 0,
+  "tokenBudgetPerWeek": 0,
   "corner": "bottomRight",
   "margin": 24,
   "width": 560,
@@ -85,17 +119,23 @@ Menüleiste „Konfiguration neu laden“ wählen):
 }
 ```
 
-- **`tokenBudgetPerBlock`** — Anthropic veröffentlicht keine festen
+- **`tokenBudgetPerBlock`**, **`tokenBudgetPerDay`**, **`tokenBudgetPerWeek`**
+  — ein Budget je Limitfenster. Anthropic veröffentlicht keine festen
   Token-Limits pro Plan; die Grenze hängt von Plan, Modell und Last ab.
   Deshalb ist der Ring standardmäßig eine 5-h-Zeitanzeige. Wenn du einmal
   ans Limit gelaufen bist, trage den dabei erreichten Tokenstand hier ein —
   ab dann zeigt der Ring den Budget-Verbrauch in Grün/Orange/Rot.
+  `0` (Standard) heißt: kein Balken für dieses Fenster, die Zahl steht
+  trotzdem da. Die drei Werte werden unabhängig kalibriert — das
+  Wochenlimit ist kein Vielfaches des 5-h-Limits.
 - **`corner`** — `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, `center`.
 - **`includeCacheReads`** — Cache-Reads mitzählen (Standard: aus, da sie
   bei den Limits kaum ins Gewicht fallen).
 - **`cloudGistID`** / **`cloudPollSeconds`** — siehe Abschnitt Cloud-Relay.
 - **`claudeProfiles`** — mehrere Claude-Logins getrennt anzeigen, siehe
   nächster Abschnitt. Leer (Standard) = ein Profil automatisch erkennen.
+  Jeder Eintrag kann mit `"enabled": false` abgeschaltet werden, ohne ihn
+  zu löschen.
 - **`showSessions`**, **`showLastQuestion`**, **`sessionRows`**,
   **`sessionActiveSeconds`**, **`sessionOpenHours`** — Chat-Übersicht, siehe
   Abschnitt „Chat-Übersicht". Ohne sie (`"showSessions": false`) genügt
@@ -158,7 +198,7 @@ Menüleiste → **Widgets → Claude-Chats**. Die zugehörigen Felder in der
 häufiger als die Tokenzahlen, weil „dieser Chat fragt gerade etwas" nur
 nützlich ist, solange es noch stimmt.
 
-## Mehrere Claude-Profile (z. B. privat + geschäftlich)
+## Mehrere Claude-Profile (z. B. Max + Pro)
 
 Wer zwei Claude-Logins nutzt, hat **zwei getrennte 5-h-Limits**. Ihre
 Verbräuche zu addieren wäre nicht nur unvollständig, sondern falsch: Die
@@ -173,14 +213,14 @@ Ein Profil entsteht dadurch, dass Claude Code mit eigenem
 Konfigurationsverzeichnis gestartet wird:
 
 ```bash
-CLAUDE_CONFIG_DIR=~/.claude-work claude
+CLAUDE_CONFIG_DIR=~/.claude-pro claude
 ```
 
 Der Login erfolgt darin getrennt, und die Transkripte landen unter
-`~/.claude-work/projects`. Praktisch ist ein Shell-Alias:
+`~/.claude-pro/projects`. Praktisch ist ein Shell-Alias:
 
 ```bash
-alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'
+alias claude-pro='CLAUDE_CONFIG_DIR=~/.claude-pro claude'
 ```
 
 ### Im Widget eintragen
@@ -188,20 +228,45 @@ alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'
 ```json
 {
   "claudeProfiles": [
-    { "name": "Privat", "configDir": "~/.claude" },
-    { "name": "Arbeit", "configDir": "~/.claude-work" }
+    { "name": "Max", "configDir": "~/.claude" },
+    { "name": "Pro", "configDir": "~/.claude-pro" }
   ]
 }
 ```
 
 Kurzform genügt — fehlt `name`, wird der Verzeichnisname verwendet
-(`~/.claude-work` → „claude-work"):
+(`~/.claude-pro` → „claude-pro"):
 
 ```json
-{ "claudeProfiles": [{ "configDir": "~/.claude-work" }] }
+{ "claudeProfiles": [{ "configDir": "~/.claude-pro" }] }
 ```
 
-Ab zwei Profilen wechselt die Darstellung auf eine kompakte Zeile pro
+### Konto abschalten, ohne es zu verlieren
+
+Ein Eintrag mit `"enabled": false` bleibt in der Konfiguration stehen, wird
+aber nicht mehr gelesen, nicht mehr gepollt und nicht mehr angezeigt — weder
+im Widget noch im Dashboard:
+
+```json
+{ "claudeProfiles": [
+    { "name": "Max", "configDir": "~/.claude" },
+    { "name": "Pro", "configDir": "~/.claude-pro" },
+    { "name": "Alt", "configDir": "~/.claude-alt", "enabled": false }
+] }
+```
+
+Das ist der Unterschied zum Löschen: Name, `configDir` und `cloudGistID`
+bleiben erhalten, ein späteres Wiedereinschalten ist eine Ein-Wort-Änderung.
+Fehlt das Feld, gilt das Profil als aktiv — bestehende Konfigurationen
+verhalten sich also unverändert.
+
+Sind **alle** konfigurierten Profile deaktiviert, zeigt das Widget nichts an.
+Es fällt ausdrücklich *nicht* auf die automatische Erkennung zurück — sonst
+stünde dort ausgerechnet das Konto, das du abgeschaltet hast. Eine leere
+Liste (`"claudeProfiles": []`) bedeutet weiterhin „ein Profil automatisch
+erkennen".
+
+Ab zwei aktiven Profilen wechselt die Darstellung auf eine kompakte Zeile pro
 Profil, jeweils mit eigenem Tokenstand, eigenem Balken und eigenem
 Reset-Countdown. Bei nur einem Profil (oder leerer Liste) bleibt die
 Anzeige unverändert.
@@ -212,7 +277,7 @@ Jedes Profil kann sein eigenes Gist mitbringen:
 
 ```json
 { "claudeProfiles": [
-    { "name": "Arbeit", "configDir": "~/.claude-work", "cloudGistID": "abc123" }
+    { "name": "Pro", "configDir": "~/.claude-pro", "cloudGistID": "abc123" }
 ] }
 ```
 

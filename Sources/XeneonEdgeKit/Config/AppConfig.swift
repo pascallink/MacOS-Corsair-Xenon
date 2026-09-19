@@ -64,6 +64,12 @@ public struct AppConfig: Codable, Equatable {
     /// Personal token budget per 5h block for the panel's ring; 0 = show the
     /// elapsed-time ring instead (limits are not published by Anthropic).
     public var claudeTokenBudgetPerBlock = 0
+    /// Dieselben nutzerkalibrierten Budgets fuer die beiden anderen
+    /// Limitfenster, Tag und rollende Woche. 0 heisst wie beim Block: kein
+    /// Balken, die Zahl steht trotzdem da. Die drei Werte haengen nicht
+    /// voneinander ab - das Wochenlimit ist kein Vielfaches des 5-h-Limits.
+    public var claudeTokenBudgetPerDay = 0
+    public var claudeTokenBudgetPerWeek = 0
     /// GitHub Gist id relaying usage from Claude Code sessions running in a
     /// remote/cloud environment (see .claude/hooks/publish-claude-usage.sh
     /// and docs/CLAUDE-USAGE-WIDGET.md). Empty disables the cloud relay
@@ -140,6 +146,8 @@ public struct AppConfig: Codable, Equatable {
         use24HourClock = try c.decodeIfPresent(Bool.self, forKey: .use24HourClock) ?? d.use24HourClock
         showClaudeUsage = try c.decodeIfPresent(Bool.self, forKey: .showClaudeUsage) ?? d.showClaudeUsage
         claudeTokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerBlock) ?? d.claudeTokenBudgetPerBlock
+        claudeTokenBudgetPerDay = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerDay) ?? d.claudeTokenBudgetPerDay
+        claudeTokenBudgetPerWeek = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerWeek) ?? d.claudeTokenBudgetPerWeek
         cloudGistID = try c.decodeIfPresent(String.self, forKey: .cloudGistID) ?? d.cloudGistID
         cloudPollSeconds = try c.decodeIfPresent(Double.self, forKey: .cloudPollSeconds) ?? d.cloudPollSeconds
         claudeProfiles = try c.decodeIfPresent([ClaudeProfile].self, forKey: .claudeProfiles) ?? d.claudeProfiles
