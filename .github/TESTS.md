@@ -81,6 +81,15 @@ Xcode aktiv ist - `--filter` ist also `swift test`s eigene Option
 Skript auf ein schlichtes `swift test "$@"` zurueck, das ruft auch die
 GitHub-CI so auf (`.github/workflows/build.yml`).
 
+Fehlt `Testing.framework` unter einem Command-Line-Tools-Pfad, bricht das
+Skript hart ab statt auf `swift test` zurueckzufallen: das ist eine kaputte
+oder unvollstaendige CLT-Installation, kein volles Xcode. Ohne diesen Abbruch
+wuerde der Rueckfall spaeter mit "no such module 'Testing'" an der
+alphabetisch ersten Testdatei scheitern - eine irrefuehrende Fehlermeldung,
+die auf den Testcode statt auf die Installation zeigt. Ebenso bricht das
+Skript ab, wenn `xcode-select -p` fehlschlaegt oder der gemeldete Pfad zu
+keinem der beiden bekannten Faelle (CLT oder Xcode.app) passt.
+
 ## Waehrend der Arbeit vs. vor dem Commit
 
 - **Waehrend der Arbeit:** ausschliesslich `./Scripts/test.sh --filter <Suite>`
