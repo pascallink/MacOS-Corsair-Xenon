@@ -22,6 +22,7 @@ let package = Package(
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("AppKit"),
+                .linkedFramework("Security"),
             ]
         ),
         .executableTarget(
