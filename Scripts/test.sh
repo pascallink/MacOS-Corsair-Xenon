@@ -42,7 +42,7 @@ case "${DEVELOPER_DIR_PATH}" in
     *CommandLineTools*)
         echo "error: Testing.framework nicht gefunden unter ${FRAMEWORKS}." >&2
         echo "Das ist eine unvollstaendige oder beschaedigte Command-Line-Tools-Installation, kein volles Xcode." >&2
-        echo "Abhilfe: sudo rm -rf /Library/Developer/CommandLineTools" >&2
+        echo "Abhilfe: sudo rm -rf ${DEVELOPER_DIR_PATH}" >&2
         echo "         sudo xcode-select --install" >&2
         echo "Bleibt der Installationsdialog aus, zeigt 'softwareupdate --list' die verfuegbaren CLT-Versionen." >&2
         exit 1
