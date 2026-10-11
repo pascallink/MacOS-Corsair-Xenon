@@ -12,7 +12,7 @@ liefert diese Funktionen nativ für macOS:
 | Windows / iCUE | Dieses Projekt |
 |---|---|
 | Touchscreen-Bedienung | ✅ Touch-Treiber: Tippen = Klick, Ziehen = Drag, Doppeltipp = Doppelklick, Langdruck = Rechtsklick; Rotation/Spiegelung konfigurierbar |
-| Widget-Dashboard (Uhr, Sensoren, Medien …) | ✅ Vollbild-Dashboard auf dem Edge: Uhr + Datum, CPU/RAM/Netzwerk-Monitoring mit Verlaufsgraph, Medien-Widget (Musik/Spotify) mit Steuerung, Lautstärkeregler, Wetter (Open-Meteo) |
+| Widget-Dashboard (Uhr, Sensoren, Medien …) | ✅ Vollbild-Dashboard auf dem Edge: Uhr + Datum, CPU/RAM/SSD/Netzwerk-Monitoring mit Verlaufsgraph, Medien-Widget (Musik/Spotify) mit Steuerung, Lautstärkeregler, Wetter (Open-Meteo) |
 | Virtual Stream Deck | ✅ „Schnellstart“-Raster mit frei konfigurierbaren App-Buttons |
 | Helligkeit/Bild über iCUE | ✅ DDC/CI: Helligkeit, Kontrast, Power (Apple Silicon) |
 | Geräteerkennung/Firmware | ✅ Vendor-HID (Corsair-Bragi-Protokoll): Erkennung, Seriennummer, Property-Abfrage |
@@ -117,7 +117,7 @@ getestet** — Fehlerberichte mit `xeneonctl probe`-Ausgabe sind sehr willkommen
 
 Native macOS support for the CORSAIR XENEON EDGE 14.5″ touchscreen:
 a touch driver (HID → CGEvent: tap, drag, double-tap, long-press right-click),
-an iCUE-style fullscreen widget dashboard (clock, CPU/RAM/network, media
+an iCUE-style fullscreen widget dashboard (clock, CPU/RAM/disk/network, media
 controls, volume, weather, app launcher), DDC/CI picture control on Apple
 Silicon, and a Bragi vendor-HID probe — plus a CLI (`xeneonctl`) and a
 LaunchAgent for autostart. See [PROTOCOL-MACOS.md](PROTOCOL-MACOS.md) for the
