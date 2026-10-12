@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar
 
     var title: String {
         switch self {
@@ -22,6 +22,7 @@ private enum WidgetToggle: Int, CaseIterable {
         case .weather: return "Wetter"
         case .claude: return "Claude-Nutzung"
         case .claudeSessions: return "Claude-Chats"
+        case .calendar: return "Termine"
         }
     }
 }
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let weatherModel = WeatherModel()
     private let claudeModel = ClaudeUsageModel()
     private let claudeSessionsModel = ClaudeSessionsModel()
+    private let agendaModel = AgendaModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -73,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(weatherModel)
             .environmentObject(claudeModel)
             .environmentObject(claudeSessionsModel)
+            .environmentObject(agendaModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -137,6 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             weatherModel.stop()
         }
+        if configStore.config.showCalendar {
+            agendaModel.start()
+        } else {
+            agendaModel.stop()
+        }
     }
 
     private func isEnabled(_ widget: WidgetToggle) -> Bool {
@@ -149,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .weather: return configStore.config.showWeather
         case .claude: return configStore.config.showClaudeUsage
         case .claudeSessions: return configStore.config.showClaudeSessions
+        case .calendar: return configStore.config.showCalendar
         }
     }
 
@@ -162,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .weather: configStore.config.showWeather = value
         case .claude: configStore.config.showClaudeUsage = value
         case .claudeSessions: configStore.config.showClaudeSessions = value
+        case .calendar: configStore.config.showCalendar = value
         }
     }
 

@@ -58,6 +58,8 @@ public struct AppConfig: Codable, Equatable {
     public var showVolume = true
     public var showLauncher = true
     public var showWeather = false
+    /// Termin-Warnungen aus dem ICS-Feed (Konfiguration in calendar.json).
+    public var showCalendar = false
     public var use24HourClock = true
     /// Claude-Code usage panel (tokens in the 5h window, reset, cost, model).
     public var showClaudeUsage = false
@@ -143,6 +145,7 @@ public struct AppConfig: Codable, Equatable {
         showVolume = try c.decodeIfPresent(Bool.self, forKey: .showVolume) ?? d.showVolume
         showLauncher = try c.decodeIfPresent(Bool.self, forKey: .showLauncher) ?? d.showLauncher
         showWeather = try c.decodeIfPresent(Bool.self, forKey: .showWeather) ?? d.showWeather
+        showCalendar = try c.decodeIfPresent(Bool.self, forKey: .showCalendar) ?? d.showCalendar
         use24HourClock = try c.decodeIfPresent(Bool.self, forKey: .use24HourClock) ?? d.use24HourClock
         showClaudeUsage = try c.decodeIfPresent(Bool.self, forKey: .showClaudeUsage) ?? d.showClaudeUsage
         claudeTokenBudgetPerBlock = try c.decodeIfPresent(Int.self, forKey: .claudeTokenBudgetPerBlock) ?? d.claudeTokenBudgetPerBlock

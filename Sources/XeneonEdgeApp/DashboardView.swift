@@ -14,6 +14,8 @@ enum EdgeTheme {
     static let panelBorder = Color.white.opacity(0.07)
     static let accent = Color(red: 0.93, green: 0.79, blue: 0.12) // Corsair yellow
     static let good = Color(red: 0.35, green: 0.80, blue: 0.45)
+    static let warn = Color(red: 0.95, green: 0.55, blue: 0.20)
+    static let critical = Color(red: 0.92, green: 0.30, blue: 0.30)
     static let textPrimary = Color.white.opacity(0.92)
     static let textSecondary = Color.white.opacity(0.55)
 }
@@ -26,6 +28,7 @@ struct DashboardView: View {
     @EnvironmentObject var weather: WeatherModel
     @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var claudeSessions: ClaudeSessionsModel
+    @EnvironmentObject var agenda: AgendaModel
 
     var body: some View {
         GeometryReader { geo in
@@ -41,8 +44,10 @@ struct DashboardView: View {
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
                     || configStore.config.showClaudeUsage
-                    || configStore.config.showClaudeSessions {
+                    || configStore.config.showClaudeSessions
+                    || configStore.config.showCalendar {
                     VStack(spacing: 16) {
+                        if configStore.config.showCalendar { AgendaPanel() }
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
                         if configStore.config.showClaudeSessions { ClaudeSessionsPanel() }
