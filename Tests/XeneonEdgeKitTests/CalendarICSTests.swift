@@ -199,4 +199,27 @@ import Testing
         """)
         #expect(events.first?.title == "Ok")
     }
+
+    @Test func truncatedEventDoesNotSwallowNextEvent() {
+        let events = Self.parse("""
+        BEGIN:VEVENT
+        UID:a
+        DTSTART:20260919T123000Z
+        SUMMARY:Kaputt
+        BEGIN:VEVENT
+        UID:b
+        DTSTART:20260920T123000Z
+        SUMMARY:Gueltig
+        END:VEVENT
+        """)
+        #expect(events.map(\.title) == ["Gueltig"])
+    }
+
+    @Test func dateValueIgnoresTZID() {
+        let events = Self.parse(
+            "BEGIN:VEVENT\nUID:a\nDTSTART;TZID=America/New_York;VALUE=DATE:20260919\nEND:VEVENT"
+        )
+        #expect(events.first?.isAllDay == true)
+        #expect(events.first?.start == Date(timeIntervalSince1970: 1_789_768_800)) // 2026-09-19T00:00 Berlin
+    }
 }

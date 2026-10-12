@@ -31,6 +31,7 @@ public enum ICSParser {
         var current: [Property]?
         var nestedDepth = 0
         var inTimezone = false
+        var unknownZones = Set<String>()
 
         for line in unfold(text) {
             guard let property = parseLine(line) else { continue }
@@ -64,16 +65,22 @@ public enum ICSParser {
                 }
                 continue
             }
-            if name == "BEGIN" {
+            if name == "BEGIN", value == "VEVENT" {
+                // Vorheriger VEVENT hatte kein END: verwerfen, neu beginnen.
+                current = []
+            } else if name == "BEGIN" {
                 nestedDepth = 1
             } else if name == "END", value == "VEVENT" {
-                if let event = makeEvent(current ?? [], defaultTimeZone: defaultTimeZone) {
+                if let event = makeEvent(current ?? [], defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones) {
                     events.append(event)
                 }
                 current = nil
             } else {
                 current?.append(property)
             }
+        }
+        for tzid in unknownZones.sorted() {
+            NSLog("ICSParser: unbekannte TZID '%@', verwende Standardzone", tzid)
         }
         return events
     }
@@ -159,15 +166,19 @@ public enum ICSParser {
 
     // MARK: - Termin
 
-    private static func makeEvent(_ props: [Property], defaultTimeZone: TimeZone) -> CalendarEvent? {
+    private static func makeEvent(
+        _ props: [Property],
+        defaultTimeZone: TimeZone,
+        unknownZones: inout Set<String>
+    ) -> CalendarEvent? {
         func first(_ name: String) -> Property? { props.first { $0.name == name } }
 
         guard let startProp = first("DTSTART"),
-              let start = resolve(startProp, defaultTimeZone: defaultTimeZone) else { return nil }
+              let start = resolve(startProp, defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones) else { return nil }
 
         var end: Date?
         if let endProp = first("DTEND") {
-            end = resolve(endProp, defaultTimeZone: defaultTimeZone)?.date
+            end = resolve(endProp, defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones)?.date
         }
         if end == nil, let durationProp = first("DURATION") {
             end = addDuration(durationProp.value, to: start)
@@ -181,7 +192,10 @@ public enum ICSParser {
             resolvedEnd = start.date
         }
 
-        let recurrence = first("RECURRENCE-ID").flatMap { resolve($0, defaultTimeZone: defaultTimeZone)?.date }
+        var recurrence: Date?
+        if let recProp = first("RECURRENCE-ID") {
+            recurrence = resolve(recProp, defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones)?.date
+        }
         return CalendarEvent(
             uid: first("UID")?.value ?? "",
             title: first("SUMMARY").map { unescape($0.value) } ?? "",
@@ -196,22 +210,14 @@ public enum ICSParser {
 
     // MARK: - Zeitpunkte
 
-    private static func resolve(_ property: Property, defaultTimeZone: TimeZone) -> Resolved? {
+    private static func resolve(
+        _ property: Property,
+        defaultTimeZone: TimeZone,
+        unknownZones: inout Set<String>
+    ) -> Resolved? {
         let value = property.value.trimmingCharacters(in: .whitespaces).uppercased()
         let isUTC = value.hasSuffix("Z")
         let digits = isUTC ? String(value.dropLast()) : value
-
-        var zone = defaultTimeZone
-        if isUTC {
-            guard let utc = TimeZone(identifier: "UTC") else { return nil }
-            zone = utc
-        } else if let tzid = property.params["TZID"] {
-            if let known = TimeZone(identifier: tzid) {
-                zone = known
-            } else {
-                NSLog("ICSParser: unbekannte TZID '%@', verwende Standardzone", tzid)
-            }
-        }
 
         let chars = Array(digits)
         let allDay: Bool
@@ -219,6 +225,21 @@ public enum ICSParser {
         case 8: allDay = true
         case 15 where chars[8] == "T": allDay = false
         default: return nil
+        }
+
+        // Reine Datumswerte: Mitternacht in defaultTimeZone, TZID/Z ignoriert.
+        var zone = defaultTimeZone
+        if !allDay {
+            if isUTC {
+                guard let utc = TimeZone(identifier: "UTC") else { return nil }
+                zone = utc
+            } else if let tzid = property.params["TZID"] {
+                if let known = TimeZone(identifier: tzid) {
+                    zone = known
+                } else {
+                    unknownZones.insert(tzid)
+                }
+            }
         }
         let numeric = chars.enumerated().filter { !(!allDay && $0.offset == 8) }.map(\.element)
         guard numeric.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }

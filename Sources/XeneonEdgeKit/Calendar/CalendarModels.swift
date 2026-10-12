@@ -8,7 +8,7 @@ import Foundation
 
 /// Ein einzelner Termin aus einem iCalendar-Feed mit aufgeloester Start-
 /// und Endzeit.
-public struct CalendarEvent: Equatable, Identifiable {
+public struct CalendarEvent: Equatable, Identifiable, Sendable {
     public let uid: String
     public let title: String
     public let location: String?
