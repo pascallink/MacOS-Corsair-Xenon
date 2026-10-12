@@ -6,6 +6,7 @@
 // special permissions required — the widget only reads local files.
 
 import AppKit
+import Combine
 import SwiftUI
 import XeneonEdgeKit
 
@@ -13,6 +14,13 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private let model = UsageViewModel()
+    private let agenda = AgendaModel()
+    private var agendaCancellables = Set<AnyCancellable>()
+    /// Abstand zwischen Karte und Nutzungsanzeige (Spacing der WidgetView).
+    private static let cardGap: CGFloat = 12
+    /// Zusatzhoehe des Fensters durch die Karte; 0 ohne sichtbare Karte.
+    private var cardExtraHeight: CGFloat = 0
+    private var statusTitle = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -31,9 +39,11 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         model.start()
+        if model.config.showCalendar { agenda.start() }
         makeWindow()
         position()
         setupStatusItem()
+        observeAgenda()
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
@@ -61,7 +71,7 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         // Above the XeneonEdge dashboard window (mainMenu+1), so both can run.
         window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
-        window.contentView = NSHostingView(rootView: WidgetView(model: model))
+        window.contentView = NSHostingView(rootView: WidgetView(model: model, agenda: agenda))
         window.orderFrontRegardless()
     }
 
@@ -70,7 +80,7 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         let screen = EdgeDisplay.find()?.screen ?? NSScreen.main
         guard let frame = screen?.frame else { return }
         let margin = CGFloat(config.margin)
-        let size = NSSize(width: config.width, height: config.height)
+        let size = NSSize(width: config.width, height: CGFloat(config.height) + cardExtraHeight)
 
         let origin: NSPoint
         switch config.corner {
@@ -87,6 +97,49 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         }
         window.setFrame(NSRect(origin: origin, size: size), display: true)
         window.orderFrontRegardless()
+    }
+
+    // MARK: Agenda
+
+    /// Zusatzhoehe fuer die Karte samt Abstand; 0 solange sie nicht sichtbar ist.
+    private static func cardHeight(config: WidgetConfig, agenda: AgendaModel) -> CGFloat {
+        guard config.showCalendar, !agenda.reminders.isEmpty else { return 0 }
+        let extra = AgendaCard.extraLines(overflow: agenda.overflow, isStale: agenda.isStale)
+        return AgendaCard.height(rows: agenda.reminders.count, extraLines: extra) + cardGap
+    }
+
+    private func observeAgenda() {
+        // @Published meldet vor der Aenderung; ein Runloop-Hop spaeter sind
+        // alle drei Felder konsistent. Das Fenster wird nur bei geaenderter
+        // Hoehe neu gesetzt, nicht jede Sekunde.
+        Publishers.CombineLatest3(agenda.$reminders, agenda.$overflow, agenda.$isStale)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _, _ in
+                guard let self else { return }
+                let height = Self.cardHeight(config: self.model.config, agenda: self.agenda)
+                if height != self.cardExtraHeight {
+                    self.cardExtraHeight = height
+                    self.position() // verankert die konfigurierte Ecke
+                }
+                self.updateStatusTitle()
+            }
+            .store(in: &agendaCancellables)
+    }
+
+    /// Titel ab Stufe .quarter der dringendsten Warnung, sonst nur das Symbol.
+    private func updateStatusTitle() {
+        guard let button = statusItem?.button else { return }
+        var title = ""
+        if model.config.showCalendar,
+           let urgent = AgendaCard.urgent(agenda.reminders),
+           let text = ReminderFormat.statusTitle(urgent) {
+            title = text
+        }
+        guard title != statusTitle else { return }
+        statusTitle = title
+        button.title = title
+        button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
+        statusItem.length = title.isEmpty ? NSStatusItem.squareLength : NSStatusItem.variableLength
     }
 
     // MARK: Status item
@@ -139,7 +192,11 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func reloadConfig() {
         model.reloadConfig()
-        window.setContentSize(NSSize(width: model.config.width, height: model.config.height))
+        if model.config.showCalendar { agenda.start() } else { agenda.stop() }
+        cardExtraHeight = Self.cardHeight(config: model.config, agenda: agenda)
+        window.setContentSize(NSSize(width: model.config.width,
+                                     height: CGFloat(model.config.height) + cardExtraHeight))
         position()
+        updateStatusTitle()
     }
 }
