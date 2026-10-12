@@ -72,6 +72,9 @@ public struct CalendarEvent: Equatable, Identifiable, Sendable {
     public let exceptionDates: [Date]
     /// Zone des DTSTART (UTC bei `Z`, TZID-Zone, sonst Standardzone).
     public let timeZone: TimeZone?
+    /// Adressen (ohne `mailto:`, getrimmt, kleingeschrieben), die den
+    /// Termin per `PARTSTAT=DECLINED` abgesagt haben.
+    public let declinedBy: Set<String>
 
     /// `uid` plus Startzeitpunkt: die `uid` allein wiederholt sich bei
     /// Serieninstanzen.
@@ -90,7 +93,8 @@ public struct CalendarEvent: Equatable, Identifiable, Sendable {
         recurrenceID: Date? = nil,
         recurrence: RecurrenceRule? = nil,
         exceptionDates: [Date] = [],
-        timeZone: TimeZone? = nil
+        timeZone: TimeZone? = nil,
+        declinedBy: Set<String> = []
     ) {
         self.uid = uid
         self.title = title
@@ -103,5 +107,6 @@ public struct CalendarEvent: Equatable, Identifiable, Sendable {
         self.recurrence = recurrence
         self.exceptionDates = exceptionDates
         self.timeZone = timeZone
+        self.declinedBy = declinedBy
     }
 }

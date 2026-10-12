@@ -205,6 +205,14 @@ public enum ICSParser {
                 }
             }
         }
+        var declinedBy: Set<String> = []
+        for prop in props where prop.name == "ATTENDEE" {
+            guard prop.params["PARTSTAT"]?.trimmingCharacters(in: .whitespaces).uppercased() == "DECLINED" else { continue }
+            var address = prop.value.trimmingCharacters(in: .whitespaces)
+            if address.lowercased().hasPrefix("mailto:") { address = String(address.dropFirst(7)) }
+            address = address.trimmingCharacters(in: .whitespaces).lowercased()
+            if !address.isEmpty { declinedBy.insert(address) }
+        }
         let rule = first("RRULE").flatMap { parseRule($0.value, start: start) }
         return CalendarEvent(
             uid: first("UID")?.value ?? "",
@@ -217,7 +225,8 @@ public enum ICSParser {
             recurrenceID: recurrence,
             recurrence: rule,
             exceptionDates: exceptionDates,
-            timeZone: start.zone
+            timeZone: start.zone,
+            declinedBy: declinedBy
         )
     }
 
