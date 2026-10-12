@@ -90,29 +90,11 @@ private struct ReminderRow: View {
     let reminder: CalendarReminder
     let showTitle: Bool
 
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
-    /// mm:ss unter einer Stunde, h:mm:ss ab einer Stunde, "laeuft" bei
-    /// negativer Restzeit.
-    static func countdown(_ remaining: TimeInterval) -> String {
-        guard remaining >= 0 else { return "laeuft" }
-        let total = Int(remaining.rounded(.up))
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-
     var body: some View {
         let color = AgendaPanel.color(for: reminder.stage)
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(Self.timeFormatter.string(from: reminder.event.start))
+                Text(ReminderFormat.clock(reminder.event.start))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textSecondary)
@@ -123,7 +105,7 @@ private struct ReminderRow: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 4)
-                Text(Self.countdown(reminder.remaining))
+                Text(ReminderFormat.countdown(reminder.remaining))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(color)
