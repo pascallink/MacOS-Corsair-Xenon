@@ -3,7 +3,7 @@
 //
 // System monitoring for the dashboard widgets — the macOS equivalent of the
 // iCUE sensor panels. Only public APIs (Mach host statistics, sysctl,
-// getifaddrs), so no elevated privileges are needed.
+// getifaddrs, volume resource values), so no elevated privileges are needed.
 
 import Darwin
 import Foundation
@@ -16,6 +16,7 @@ public struct SystemSnapshot {
     public var networkRxBytesPerSecond: Double = 0
     public var networkTxBytesPerSecond: Double = 0
     public var uptime: TimeInterval = 0
+    public var disk = DiskUsage()
 
     public init() {}
 
@@ -24,9 +25,43 @@ public struct SystemSnapshot {
     }
 }
 
+/// Fill level of one volume, counted the way Finder does: purgeable space
+/// (local Time Machine snapshots, evictable iCloud files) counts as free.
+public struct DiskUsage: Equatable {
+    public var total: UInt64 = 0             // bytes
+    public var available: UInt64 = 0
+
+    public init(total: UInt64 = 0, available: UInt64 = 0) {
+        self.total = total
+        self.available = min(available, total)
+    }
+
+    public var used: UInt64 { total - available }
+
+    public var usage: Double {
+        total > 0 ? Double(used) / Double(total) : 0
+    }
+
+    /// Reads the volume containing `path`; nil if it cannot be queried.
+    public static func read(volumeAt path: String = "/") -> DiskUsage? {
+        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey,
+                                         .volumeAvailableCapacityForImportantUsageKey]
+        guard let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: keys),
+              let total = values.volumeTotalCapacity, total > 0,
+              let available = values.volumeAvailableCapacityForImportantUsage,
+              available >= 0 else { return nil }
+        return DiskUsage(total: UInt64(total), available: UInt64(available))
+    }
+}
+
 public final class SystemStats {
     private var previousCPUTicks: [(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32)] = []
     private var previousNetSample: (rx: UInt64, tx: UInt64, at: Date)?
+    private var lastDisk: (usage: DiskUsage, at: Date)?
+
+    /// Fill levels change slowly and the purgeable-space query is not free,
+    /// so the disk is re-read at most this often instead of every tick.
+    public var diskRefreshInterval: TimeInterval = 15
 
     public init() {}
 
@@ -35,6 +70,7 @@ public final class SystemStats {
         sampleCPU(into: &snap)
         sampleMemory(into: &snap)
         sampleNetwork(into: &snap)
+        sampleDisk(into: &snap)
         snap.uptime = ProcessInfo.processInfo.systemUptime
         return snap
     }
@@ -101,6 +137,22 @@ public final class SystemStats {
         let used = (UInt64(stats.active_count) + UInt64(stats.wire_count)
             + UInt64(stats.compressor_page_count)) * pageSize
         snap.memoryUsed = min(used, snap.memoryTotal)
+    }
+
+    // MARK: Disk
+
+    private func sampleDisk(into snap: inout SystemSnapshot) {
+        let now = Date()
+        if let last = lastDisk, now.timeIntervalSince(last.at) < diskRefreshInterval {
+            snap.disk = last.usage
+            return
+        }
+        guard let usage = DiskUsage.read() else {
+            snap.disk = lastDisk?.usage ?? DiskUsage()
+            return
+        }
+        lastDisk = (usage, now)
+        snap.disk = usage
     }
 
     // MARK: Network

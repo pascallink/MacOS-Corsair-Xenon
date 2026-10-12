@@ -152,6 +152,9 @@ struct StatsPanel: View {
                     GaugeView(label: "RAM",
                               value: stats.snapshot.memoryUsage,
                               text: ByteFormatter.size(stats.snapshot.memoryUsed))
+                    GaugeView(label: "SSD · \(ByteFormatter.size(stats.snapshot.disk.available)) frei",
+                              value: stats.snapshot.disk.usage,
+                              text: String(format: "%.0f%%", stats.snapshot.disk.usage * 100))
                     VStack(alignment: .leading, spacing: 8) {
                         NetworkRow(symbol: "arrow.down",
                                    text: ByteFormatter.rate(stats.snapshot.networkRxBytesPerSecond))
