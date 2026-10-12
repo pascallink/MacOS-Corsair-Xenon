@@ -48,7 +48,8 @@ Konfliktpunkt.
 
 ## Eskalation vorab bekannt
 
-`Sources/XeneonEdgeApp/DashboardView.swift` hat 704 Zeilen und liegt damit
+`Sources/XeneonEdgeApp/DashboardView.swift` hat 799 Zeilen (Stand develop
+`dffba8a`) und liegt damit
 ueber der Eignungsgrenze des lokalen Modells. Der Micro-Task fuer diese
 Datei in Sub-Task 5 geht nach `CLAUDE.md` **direkt an den `umsetzer`**, ohne
 lokalen Versuch. Deshalb liegt das Panel in einer eigenen Datei
@@ -89,8 +90,12 @@ Aufgaben:
    `location: String?`, `start: Date`, `end: Date`, `isAllDay: Bool`,
    `status: String?`, `recurrenceID: Date?`. Dazu das Enum
    `CalendarEventStatus` nicht anlegen - `status` bleibt der rohe Wert aus
-   dem Feed (z. B. "CONFIRMED", "CANCELLED"), gross geschrieben.
-2. In ICSParser.swift die Funktion
+   dem Feed (z. B. "CONFIRMED", "CANCELLED"), per `uppercased()`
+   normalisiert. `id` ist berechnet und muss je Serieninstanz eindeutig
+   sein: `uid` plus Startzeitpunkt (`timeIntervalSince1970`), getrennt
+   durch "|" - die `uid` allein wiederholt sich bei Serien ab Sub-Task 2.
+2. In ICSParser.swift `public enum ICSParser` (caseless, wie
+   `BitbucketResponseParser`) mit der Funktion
    `public static func parse(_ text: String, defaultTimeZone: TimeZone = .current) -> [CalendarEvent]`
    anlegen. Sie ist rein und synchron, ohne Netz- und Dateizugriff - gleiche
    Bauform wie `CloudUsageFetcher.parseGistResponse` in
@@ -99,9 +104,18 @@ Aufgaben:
    die mit Leerzeichen oder Tabulator beginnt, gehoert an die vorherige
    angehaengt, ohne dieses erste Zeichen. Erst danach wird in
    Name/Parameter/Wert getrennt. CRLF und LF muessen beide funktionieren.
+   Eigenschaftsnamen und Parameternamen sind case-insensitiv. Name und
+   Wert trennt der erste Doppelpunkt ausserhalb doppelter Anfuehrungszeichen
+   (`ATTENDEE;CN="Doe: John":mailto:...`); Parameterwerte in
+   Anfuehrungszeichen werden ohne die Zeichen gelesen
+   (`TZID="Europe/Berlin"`).
 4. Nur Bloecke zwischen BEGIN:VEVENT und END:VEVENT auswerten. Ein
    BEGIN:VTIMEZONE-Block wird bis zu seinem END:VTIMEZONE vollstaendig
    uebersprungen, auch wenn er VEVENT-aehnliche Zeilen enthaelt.
+   Verschachtelte Komponenten innerhalb eines VEVENT (vor allem VALARM)
+   werden ebenfalls bis zu ihrem END uebersprungen: VALARM traegt eigene
+   DURATION-, DESCRIPTION- und SUMMARY-Zeilen, die sonst die Werte des
+   Termins ueberschreiben.
 5. Werte von SUMMARY und LOCATION entmaskieren: `\n` und `\N` werden zum
    Zeilenumbruch, `\,` zum Komma, `\;` zum Semikolon, `\\` zum
    Backslash.
@@ -113,9 +127,19 @@ Aufgaben:
      behalten.
    - `DTSTART:20260919T143000` ohne Zone -> `defaultTimeZone`.
    - `DTSTART;VALUE=DATE:20260919` -> `isAllDay = true`, Start auf
-     Mitternacht in `defaultTimeZone`.
-7. Fehlt DTEND, aber DURATION ist gesetzt (Form `PT1H30M`, `PT45M`, `P1D`),
-   das Ende aus Start plus Dauer berechnen. Fehlen beide, Ende gleich Start.
+     Mitternacht in `defaultTimeZone`. DTEND;VALUE=DATE ist exklusiv (der
+     Folgetag bei einem eintaegigen Termin) und wird unveraendert als
+     Mitternacht dieses Tages uebernommen.
+   Die Umrechnung laeuft ueber einen gregorianischen `Calendar` mit
+   gesetzter `timeZone` und `DateComponents`, nicht ueber einen
+   `DateFormatter` mit Geraete-Locale. Ungueltige Ziffernfolgen (falsche
+   Laenge, Monat 13) ergeben nil, kein Crash.
+7. Fehlt DTEND, aber DURATION ist gesetzt (Form `PT1H30M`, `PT45M`, `P1D`,
+   auch `P1W`, `P1DT2H`, `PT30S`), das Ende aus Start plus Dauer berechnen;
+   Tage und Wochen ueber `Calendar.date(byAdding:)` in der Zone des Starts,
+   damit ein Tag ueber die Zeitumstellung ein Kalendertag bleibt. Eine
+   unlesbare DURATION zaehlt wie eine fehlende. Fehlen beide, Ende gleich
+   Start; bei VALUE=DATE ohne DTEND und DURATION Ende = Start plus ein Tag.
 8. Ein VEVENT ohne verwertbares DTSTART wird uebersprungen, nicht als
    Platzhalter aufgenommen. RECURRENCE-ID wird wie ein DTSTART aufgeloest
    und in `recurrenceID` abgelegt.
@@ -125,7 +149,12 @@ Aufgaben:
    der vier DTSTART-Formen; DURATION ohne DTEND; VALUE=DATE setzt isAllDay;
    unbekannte TZID faellt auf defaultTimeZone zurueck ohne den Termin zu
    verlieren; Text ohne VEVENT ergibt ein leeres Array; abgeschnittener
-   VEVENT-Block ohne END ergibt ein leeres Array.
+   VEVENT-Block ohne END ergibt ein leeres Array; ein VALARM mit DURATION
+   veraendert das Ende des Termins nicht; CRLF-Eingabe ergibt dasselbe wie
+   LF; RECURRENCE-ID landet in `recurrenceID`. Zeitpunkte in den Tests
+   gegen feste Werte pruefen (`Date(timeIntervalSince1970:)` oder ueber
+   einen Calendar mit fester Zone), `defaultTimeZone` in jedem Test
+   explizit uebergeben - nie von der Zone des Testrechners abhaengen.
 
 Definition of Done:
 - [ ] `ICSParser.parse` ist rein: kein URLSession-, kein FileManager-Zugriff.
@@ -425,7 +454,7 @@ Constraints:
 * **Scope:** `app` - **Branch:** `feature/issue-20-part-5` (Base part-4)
 * **Zu erstellen:** `Sources/XeneonEdgeApp/AgendaPanel.swift`
 * **Zu aendern:** `Sources/XeneonEdgeApp/Models.swift`,
-  `Sources/XeneonEdgeApp/DashboardView.swift` (Eskalation: 704 Zeilen,
+  `Sources/XeneonEdgeApp/DashboardView.swift` (Eskalation: 799 Zeilen,
   direkt an den `umsetzer`), `Sources/XeneonEdgeApp/AppDelegate.swift`,
   `Sources/XeneonEdgeKit/Config/AppConfig.swift`
 * **Definition of Done:** Panel laesst sich ueber das Menue ohne Neustart
@@ -510,7 +539,7 @@ Constraints:
   feature/issue-20-part-5 origin/feature/issue-20-part-4` anlegen. Kein
   anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
-- DashboardView.swift hat 704 Zeilen: dort nur die beiden beschriebenen
+- DashboardView.swift hat 799 Zeilen: dort nur die beiden beschriebenen
   Einfuegungen, keine Umbauten, keine Formatierungsaenderungen.
 - Keine Logik in die View - Auswahl und Stufen kommen unveraendert aus
   XeneonEdgeKit.
