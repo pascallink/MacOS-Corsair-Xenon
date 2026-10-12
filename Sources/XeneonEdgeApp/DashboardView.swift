@@ -34,20 +34,23 @@ struct DashboardView: View {
         GeometryReader { geo in
             let compact = geo.size.width < 1600
             HStack(spacing: 16) {
-                if configStore.config.showClock {
-                    ClockPanel(showWeather: configStore.config.showWeather,
-                               placeName: configStore.config.weatherPlaceName)
-                        .frame(maxWidth: geo.size.width * (compact ? 0.30 : 0.24))
+                if configStore.config.showClock || configStore.config.showCalendar {
+                    VStack(spacing: 16) {
+                        if configStore.config.showClock {
+                            ClockPanel(showWeather: configStore.config.showWeather,
+                                       placeName: configStore.config.weatherPlaceName)
+                        }
+                        if configStore.config.showCalendar { AgendaPanel() }
+                    }
+                    .frame(maxWidth: geo.size.width * (compact ? 0.30 : 0.24))
                 }
                 if configStore.config.showStats {
                     StatsPanel()
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
                     || configStore.config.showClaudeUsage
-                    || configStore.config.showClaudeSessions
-                    || configStore.config.showCalendar {
+                    || configStore.config.showClaudeSessions {
                     VStack(spacing: 16) {
-                        if configStore.config.showCalendar { AgendaPanel() }
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
                         if configStore.config.showClaudeSessions { ClaudeSessionsPanel() }
