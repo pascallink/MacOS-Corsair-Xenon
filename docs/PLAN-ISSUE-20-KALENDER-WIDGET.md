@@ -859,25 +859,53 @@ Dateiebene:
 
 Aufgaben:
 1. docs/GOOGLE-KALENDER-WIDGET.md im Ton und Aufbau von
-   docs/CLAUDE-USAGE-WIDGET.md schreiben: was angezeigt wird, die beiden
-   Betriebsarten (Panel im Dashboard, Karte im Widget), Einrichtung,
-   Optionstabelle, Datenschutzabsatz, Grenzen.
+   docs/CLAUDE-USAGE-WIDGET.md schreiben, mit Umlauten wie dort (die Regel
+   "ohne Umlaute" gilt fuer Code-Kommentare und UI-Texte, nicht fuer die
+   Doku): was angezeigt wird, die beiden Betriebsarten (Panel "Termine" im
+   Dashboard, eingeschaltet ueber das Menue Widgets > Termine; Karte im
+   Menueleisten-Widget, Schalter `showCalendar` in claude-widget.json,
+   Default an), Einrichtung, Optionstabelle, Datenschutzabsatz, Grenzen,
+   lokaler Test. Beim Widget beschreiben: die Karte steht ueber der
+   Nutzungsanzeige, das Fenster waechst um die Karte und bleibt an der
+   konfigurierten Ecke verankert, ab 15 min Restzeit zeigt die Menueleiste
+   einen Kurztitel ("14:30 - 12 min", "jetzt", "laeuft").
 2. Einrichtung Schritt fuer Schritt: in Google Kalender die
    Kalendereinstellungen oeffnen, unter "Geheime Adresse im iCal-Format" die
    URL kopieren, calendar.json unter ~/Library/Application
    Support/XeneonEdge/ anlegen, `enabled` auf true setzen, Widget oder
-   Dashboard neu laden.
+   Dashboard neu laden (Menue "Konfiguration neu laden").
+   Eigener Unterabschnitt "Oeffentliche oder geheime Adresse": Die
+   oeffentliche Adresse (`.../ical/<kalender-id>/public/basic.ics`)
+   funktioniert nur, wenn der Kalender oeffentlich freigegeben ist - sonst
+   antwortet Google mit HTTP 404 und das Panel zeigt nach drei Versuchen
+   "Stand veraltet". Fuer einen Firmenkalender ist das Oeffentlichmachen
+   nicht empfehlenswert. Die geheime Adresse funktioniert ohne Freigabe;
+   fehlt der Eintrag "Geheime Adresse im iCal-Format", hat der
+   Google-Workspace-Admin ihn gesperrt. Ein Freigabelink der Form
+   `calendar.google.com/calendar/u/0?cid=...` ist kein Feed.
 3. Optionstabelle mit Default und Wirkung je Feld: enabled, feedURL,
    leadMinutes, graceMinutes, maxReminders, pollSeconds, showEventTitles,
    feedOwnerEmail. Dazu die geklemmten Bereiche (pollSeconds 60 bis 3600,
-   leadMinutes 5 bis 240, maxReminders 1 bis 4).
+   leadMinutes 5 bis 240, graceMinutes 0 bis 30, maxReminders 1 bis 4).
+   Bei feedOwnerEmail erklaeren: Termine, die diese Adresse abgesagt hat
+   (PARTSTAT=DECLINED), erzeugen keine Warnung.
 4. Die Eskalationstabelle uebernehmen: 60 bis 30 min gruen, 30 bis 15 min
    gelb, 15 bis 5 min orange, 5 bis 1 min rot, unter 1 min rot pulsierend.
 5. Einen Abschnitt zu den Grenzen: Ganztagstermine werden nie angezeigt; der
    Google-Feed aktualisiert sich traege (Minuten), ein spontan eingetragener
-   Termin in fuenf Minuten kann fehlen; kein Schreibzugriff auf den
-   Kalender; bei Netzausfall bleibt der letzte Stand stehen und der
-   Countdown laeuft weiter.
+   Termin in fuenf Minuten kann fehlen; ist gerade keine Warnung sichtbar,
+   erscheint ein neu in den Vorlauf ruckender Termin erst beim naechsten
+   Abruf (hoechstens pollSeconds); kein Schreibzugriff auf den Kalender;
+   bei Netzausfall bleibt der letzte Stand stehen und der Countdown laeuft
+   weiter; Serienregeln mit BYSETPOS, BYWEEKNO, BYYEARDAY oder
+   Stundenangaben werden nicht expandiert, der Termin erscheint dann nur
+   als Einzeltermin; Dashboard-App und Widget rufen den Feed jeweils
+   selbst ab.
+5a. Abschnitt "Lokal testen ohne Google": `./Scripts/sample-calendar.sh`
+   erzeugt eine Beispieldatei mit Terminen relativ zur aktuellen Zeit, der
+   Debug-Build liest sie ueber die Umgebungsvariable
+   `XENEON_CALENDAR_ICS_FILE` statt des Feeds (im Release-Build gibt es
+   diese Variable nicht). Startbefehle fuer App und Widget nennen.
 6. Datenschutzabsatz: die geheime Adresse ist ein Zugangsschluessel in
    URL-Form - wer sie hat, liest den ganzen Kalender. Sie steht nur in
    calendar.json (Rechte 0600), wird nie geloggt und nie angezeigt.
@@ -888,7 +916,12 @@ Aufgaben:
 8. In CLAUDE.md unter "Tech-Stack-Vorgaben" einen Punkt ergaenzen: die
    Kalender-Feed-URL ist ein Geheimnis, sie wird nie geloggt, nie in einer
    Fehlermeldung ausgegeben und nie in der UI angezeigt; Logs nennen
-   hoechstens Host und HTTP-Status. Diese Zusage nicht aufweichen.
+   hoechstens Host und HTTP-Status. Diese Zusage nicht aufweichen. Konkret:
+   Fehlerobjekte (URLError, error) nie interpolieren, der Abruf laeuft ueber
+   die ephemere Session ohne URL-Cache, calendar.json wird mit 0600
+   angelegt. Zusaetzlich unter "Targets" bzw. passender Stelle: die
+   Kalender-Logik inklusive AgendaModel liegt in XeneonEdgeKit/Calendar,
+   App und Widget teilen sie.
 
 Definition of Done:
 - [ ] Ein Leser richtet das Feature allein anhand der Doku ein.
@@ -896,11 +929,15 @@ Definition of Done:
 - [ ] README und CLAUDE.md verweisen auf die neue Datei bzw. die Geheimnis-Zusage.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-7
-  feature/issue-20-part-6` und `git checkout feature/issue-20-part-7`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-7`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-7 origin/feature/issue-20-part-6` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-7 feature/issue-20-part-6` anlegen (part-6 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
+- Jede Aussage in der Doku gegen den Code pruefen (Defaults, Klemmbereiche,
+  Texte im Panel, Menuepunkte) - Quelle sind die Dateien unter
+  Sources/XeneonEdgeKit/Calendar/, Sources/XeneonEdgeKit/Config/CalendarConfig.swift,
+  Sources/XeneonEdgeApp/AgendaPanel.swift und Sources/ClaudeUsageWidget/.
 - Nur Dokumentation, kein Produktivcode in diesem Sub-Task.
 - Genau einmal vor dem finalen Commit die CI-Kette: `swift build &&
   ./Scripts/test.sh && swift build -c release && ./Scripts/bundle-app.sh release`.
