@@ -94,9 +94,10 @@ public struct CalendarConfig: Codable, Equatable, Sendable {
         }
     }
 
-    /// Schreibt die Konfiguration. Die Temp-Datei entsteht bereits mit 0600
-    /// im Zielverzeichnis und wird per rename ersetzt, so liegt der Inhalt
-    /// nie mit weiteren Rechten auf der Platte. Wirft bei Fehlern.
+    /// Schreibt die Konfiguration. Die Temp-Datei wird per open(2) mit
+    /// O_EXCL und Modus 0600 angelegt (die umask schraenkt nur weiter ein),
+    /// ist also von Anfang an nur fuer den Besitzer lesbar, und wird danach
+    /// per rename ersetzt. Wirft bei Fehlern, die Temp-Datei wird entfernt.
     public func save(to url: URL = fileURL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -106,14 +107,39 @@ public struct CalendarConfig: Codable, Equatable, Sendable {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let tmp = dir.appendingPathComponent(".calendar-\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(atPath: tmp.path, contents: data,
-                                             attributes: [.posixPermissions: 0o600])
-        else { throw CocoaError(.fileWriteUnknown) }
+        let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw Self.posixError(errno) }
 
+        func fail(_ code: Int32) -> Error {
+            _ = close(fd)
+            unlink(tmp.path)
+            return Self.posixError(code)
+        }
+
+        var offset = 0
+        while offset < data.count {
+            let n = data.withUnsafeBytes { raw in
+                write(fd, raw.baseAddress! + offset, data.count - offset)
+            }
+            if n < 0 {
+                if errno == EINTR { continue }
+                throw fail(errno)
+            }
+            offset += n
+        }
+        if close(fd) != 0 {
+            let code = errno
+            unlink(tmp.path)
+            throw Self.posixError(code)
+        }
         if rename(tmp.path, url.path) != 0 {
             let code = errno
-            try? FileManager.default.removeItem(at: tmp)
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            unlink(tmp.path)
+            throw Self.posixError(code)
         }
+    }
+
+    private static func posixError(_ code: Int32) -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
     }
 }
