@@ -82,6 +82,15 @@ Geraet verifiziert.
   Keychain wird gar nicht erst angefasst - ihr Eintrag ist ein Blob mit den
   Tokens. Fehlt die Datei, heisst das "Plan unbekannt" und die UI laesst das
   Badge weg. Diese Zusage nicht aufweichen.
+- **Die Kalender-Feed-URL ist ein Geheimnis.** Die geheime iCal-Adresse ist
+  ein Zugangsschluessel zum ganzen Kalender: sie wird nie geloggt, nie in einer
+  Fehlermeldung ausgegeben und nie in der UI angezeigt; Logs nennen hoechstens
+  Host und HTTP-Status. Fehlerobjekte (`URLError`, `error`) nie interpolieren,
+  sie tragen die volle URL. Der Abruf laeuft ueber die ephemere Session ohne
+  URL-Cache, `calendar.json` wird mit `0600` angelegt. Diese Zusage nicht
+  aufweichen. Einrichtung: [`docs/GOOGLE-KALENDER-WIDGET.md`](docs/GOOGLE-KALENDER-WIDGET.md).
+- **Kalender-Logik liegt in `XeneonEdgeKit/Calendar`**, inklusive `AgendaModel`.
+  Dashboard-App und Widget teilen sie und halten nur View und Fensterlayout.
 - **DDC-Symbole kommen zur Laufzeit per `dlsym`**, damit das Binary auch auf
   Maschinen ohne sie laedt (DDC meldet dort "unsupported"). DDC braucht eine
   direkte HDMI-/USB-C-Verbindung; viele Docks leiten I2C nicht weiter.

@@ -34,6 +34,12 @@ liefert diese Funktionen nativ für macOS:
   offen herumliegen, dazu laufende Subagenten und optional die zuletzt
   offene Frage im Klartext. Im Widget standardmäßig an, im Dashboard über
   Widgets → Claude-Chats (`"showClaudeSessions": true`).
+- **Terminwarnung** — die nächsten Termine aus dem Google Kalender (geheime
+  iCal-Adresse, nur lesend) mit Countdown und Farbeskalation von Grün bis zu
+  pulsierendem Rot; als Panel im Dashboard (Widgets → Termine) oder als Karte
+  samt Kurztitel in der Menüleiste des Widgets. Die Feed-Adresse bleibt in
+  einer Datei mit Rechten `0600` und wird nie geloggt →
+  [docs/GOOGLE-KALENDER-WIDGET.md](docs/GOOGLE-KALENDER-WIDGET.md).
 - **`xeneonctl`** — Kommandozeilenwerkzeug (probe, brightness, ddc, touch-monitor).
 
 Technische Details zum Gerät und Protokoll: [PROTOCOL-MACOS.md](PROTOCOL-MACOS.md).
