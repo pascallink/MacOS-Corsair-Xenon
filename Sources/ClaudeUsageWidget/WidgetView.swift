@@ -26,7 +26,7 @@ struct WidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Ohne Warnung entsteht weder Karte noch Abstand. Die Bedingung
-            // muss zu WidgetAppDelegate.applyWindowSize() passen.
+            // muss zu WidgetAppDelegate.cardHeight(config:agenda:) passen.
             if model.config.showCalendar && !agenda.reminders.isEmpty {
                 AgendaCard(agenda: agenda)
             }
