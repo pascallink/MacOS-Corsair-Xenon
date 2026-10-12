@@ -71,7 +71,8 @@ public enum RecurrenceExpander {
             recurrenceID: nil,
             recurrence: nil,
             exceptionDates: [],
-            timeZone: master.timeZone
+            timeZone: master.timeZone,
+            declinedBy: master.declinedBy
         )
     }
 

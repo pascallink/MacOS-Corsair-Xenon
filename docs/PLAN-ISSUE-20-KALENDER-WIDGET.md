@@ -322,6 +322,10 @@ Constraints:
 * **Scope:** `kit` - **Branch:** `feature/issue-20-part-3` (Base part-2)
 * **Zu erstellen:** `Sources/XeneonEdgeKit/Calendar/CalendarReminder.swift`,
   `Tests/XeneonEdgeKitTests/CalendarReminderTests.swift`
+* **Zu aendern:** `Sources/XeneonEdgeKit/Calendar/CalendarModels.swift`,
+  `Sources/XeneonEdgeKit/Calendar/ICSParser.swift`,
+  `Sources/XeneonEdgeKit/Calendar/RecurrenceExpander.swift` (nur
+  `declinedBy` durchreichen)
 * **Definition of Done:** Die Auswahl ist vollstaendig ueber ein
   injiziertes `now` steuerbar; jede Stufengrenze ist sekundengenau
   getestet.
@@ -341,10 +345,10 @@ Fenster.
 
 Dateiebene:
 - Zu erstellen: Sources/XeneonEdgeKit/Calendar/CalendarReminder.swift, Tests/XeneonEdgeKitTests/CalendarReminderTests.swift
-- Zu aendern: -
+- Zu aendern: Sources/XeneonEdgeKit/Calendar/CalendarModels.swift, Sources/XeneonEdgeKit/Calendar/ICSParser.swift, Sources/XeneonEdgeKit/Calendar/RecurrenceExpander.swift
 
 Aufgaben:
-1. Enum `ReminderStage` mit den Faellen `.hour`, `.halfHour`, `.quarter`,
+1. Enum `ReminderStage` (Equatable, Sendable, CaseIterable) mit den Faellen `.hour`, `.halfHour`, `.quarter`,
    `.fiveMinutes`, `.imminent` und
    `public init(remaining: TimeInterval)`. Grenzen: ueber 1800 s -> .hour,
    ueber 900 s -> .halfHour, ueber 300 s -> .quarter, ueber 60 s ->
@@ -353,51 +357,73 @@ Aufgaben:
    .fiveMinutes. Eine negative Restzeit (Termin laeuft) ergibt .imminent.
 2. Struct `CalendarReminder` (Equatable, Identifiable) mit `event:
    CalendarEvent`, `remaining: TimeInterval`, `stage: ReminderStage`,
-   `progress: Double`. `progress` ist 0 bei Restzeit gleich Vorlauf und 1
-   bei Restzeit 0, immer auf 0...1 geklemmt.
+   `progress: Double`, `Sendable`. `id` ist `event.id`. `progress` ist
+   `1 - remaining / (leadMinutes * 60)`: 0 bei Restzeit gleich Vorlauf und
+   1 bei Restzeit 0, immer auf 0...1 geklemmt; bei `leadMinutes <= 0` gilt
+   1, nie eine Division durch 0.
 3. Struct `ReminderOptions` mit `leadMinutes: Double = 60`,
    `graceMinutes: Double = 2`, `maxReminders: Int = 2`,
-   `feedOwnerEmail: String = ""`.
+   `feedOwnerEmail: String = ""`, Equatable und Sendable. Dazu ein
+   explizites `public init` mit allen vier Parametern samt Defaults - der
+   synthetisierte memberwise-Init ist nur intern und waere aus App und
+   Widget nicht aufrufbar.
 4. `public enum UpcomingReminders` mit
    `static func select(events: [CalendarEvent], now: Date, options: ReminderOptions = .init()) -> (reminders: [CalendarReminder], overflow: Int)`.
    `now` wird immer uebergeben - kein `Date()` innerhalb der Auswahl, sonst
-   ist sie nicht testbar.
+   ist sie nicht testbar. `events` ist die bereits expandierte Liste aus
+   `RecurrenceExpander.expand`; die Funktion expandiert selbst nicht.
 5. Auswahlregeln in dieser Reihenfolge: Termine mit `isAllDay == true`
-   fallen raus; Termine mit `status == "CANCELLED"` fallen raus; ein Termin
-   zaehlt, wenn sein Start zwischen `now - graceMinutes` und `now +
-   leadMinutes` liegt; sortiert wird nach Startzeit, bei gleichem Start nach
-   Titel, damit die Reihenfolge stabil ist.
+   fallen raus; Termine mit `status == "CANCELLED"` fallen raus; abgesagte
+   Termine nach Aufgabe 7 fallen raus; ein Termin zaehlt, wenn
+   `now - graceMinutes*60 <= start <= now + leadMinutes*60` (beide Grenzen
+   inklusive); doppelte Eintraege mit gleicher `id` zaehlen einmal;
+   sortiert wird nach Startzeit, bei gleichem Start nach Titel, dann nach
+   `uid`, damit die Reihenfolge stabil ist. Ein negatives `maxReminders`
+   zaehlt wie 0.
 6. Von den verbleibenden Terminen werden die ersten `maxReminders`
    zurueckgegeben, der Rest zaehlt in `overflow`.
 7. Ist `feedOwnerEmail` nicht leer, fallen zusaetzlich Termine raus, die
-   fuer genau diese Adresse `PARTSTAT=DECLINED` tragen. Dafuer bekommt
-   `CalendarEvent` in dieser Datei keine neuen Felder - stattdessen die
-   Signatur so waehlen, dass die Absage-Information als
-   `declinedBy: Set<String>` am Event liegt; das Feld in
-   CalendarModels.swift ergaenzen und im Parser aus ATTENDEE-Zeilen fuellen
-   ist Teil dieses Sub-Tasks nur, falls es ohne Aenderung an ICSParser.swift
-   nicht geht - andernfalls `declinedBy` leer lassen und den Filter
-   vorbereiten.
+   fuer genau diese Adresse `PARTSTAT=DECLINED` tragen. Dafuer:
+   - In CalendarModels.swift `CalendarEvent` um
+     `declinedBy: Set<String> = []` ergaenzen, als letzter init-Parameter
+     mit Default - bestehende Aufrufe bleiben gueltig.
+   - In ICSParser.swift jede ATTENDEE-Zeile mit Parameter
+     `PARTSTAT=DECLINED` auswerten: Wert ohne fuehrendes `mailto:`
+     (case-insensitiv), getrimmt und kleingeschrieben in `declinedBy`.
+   - In RecurrenceExpander.swift `declinedBy` des Masters in jede
+     generierte Instanz uebernehmen (eine RECURRENCE-ID-Ausnahme bringt
+     ihre eigenen ATTENDEE-Zeilen mit).
+   - Der Vergleich mit `feedOwnerEmail` ist case-insensitiv und getrimmt.
 8. In CalendarReminderTests.swift die Suite `CalendarReminderTests` anlegen,
    mit je einem Test fuer: Ganztagstermin faellt raus; Termin in 61 Minuten
    ist nicht dabei, in 59 Minuten schon; drei passende Termine ergeben zwei
    Warnungen und overflow == 1; ein vor 1 Minute gestarteter Termin ist noch
    dabei, ein vor 3 Minuten gestarteter nicht mehr; CANCELLED faellt raus;
    je ein Test auf die Sekunde fuer 1800, 900, 300 und 60 Sekunden
-   Restzeit; progress ist 0 bei 3600 s und 1 bei 0 s Restzeit.
+   Restzeit, jeweils auch eine Sekunde darueber; negative Restzeit ergibt
+   .imminent; progress ist 0 bei 3600 s und 1 bei 0 s Restzeit; ein fuer
+   `feedOwnerEmail` abgesagter Termin faellt raus, bei leerer
+   `feedOwnerEmail` bleibt er; gleicher Start sortiert nach Titel. Dazu in
+   derselben Suite ein Parser-Test (ATTENDEE mit `PARTSTAT=DECLINED` und
+   `MAILTO:` in Grossbuchstaben fuellt `declinedBy`) und ein Expander-Test
+   (Instanzen einer Serie tragen `declinedBy` des Masters).
 
 Definition of Done:
 - [ ] Kein `Date()` in der Auswahl- oder Stufenlogik.
 - [ ] Nie mehr als `maxReminders` Eintraege, der Rest steht in `overflow`.
+- [ ] Ein fuer `feedOwnerEmail` abgesagter Termin erzeugt keine Warnung.
 - [ ] Alle vier Stufengrenzen sekundengenau getestet.
 - [ ] Neue und bestehende Tests laufen gruen.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-3
-  feature/issue-20-part-2` und `git checkout feature/issue-20-part-3`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-3`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-3 origin/feature/issue-20-part-2` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-3 feature/issue-20-part-2` anlegen (part-2 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
+- Bestehende Signaturen aus Sub-Task 1 und 2 nicht brechen; bestehende
+  Tests in ICSParserTests und RecurrenceExpanderTests bleiben unveraendert
+  gruen.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
 - Keine Farben, keine SwiftUI-Typen in dieser Datei - die Zuordnung Stufe zu
   Farbe faellt in der jeweiligen Oberflaeche.
