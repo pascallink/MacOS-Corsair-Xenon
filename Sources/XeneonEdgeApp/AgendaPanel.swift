@@ -11,9 +11,11 @@ import XeneonEdgeKit
 struct AgendaPanel: View {
     @EnvironmentObject var agenda: AgendaModel
 
-    /// Massgeblich ist die dringendste Warnung (Auswahl ist nach Start sortiert).
+    /// Massgeblich ist die dringendste Warnung: der hoechste Rang in
+    /// `ReminderStage.allCases` (hour ... imminent), unabhaengig von der
+    /// Reihenfolge der Liste.
     private var urgent: ReminderStage? {
-        agenda.reminders.map(\.stage).min { Self.rank($0) < Self.rank($1) }
+        agenda.reminders.map(\.stage).max { Self.rank($0) < Self.rank($1) }
     }
 
     private static func rank(_ stage: ReminderStage) -> Int {
