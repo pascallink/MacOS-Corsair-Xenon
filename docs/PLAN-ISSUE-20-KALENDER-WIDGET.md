@@ -209,39 +209,88 @@ Dateiebene:
 - Zu aendern: Sources/XeneonEdgeKit/Calendar/CalendarModels.swift, Sources/XeneonEdgeKit/Calendar/ICSParser.swift
 
 Aufgaben:
-1. In CalendarModels.swift den Typ `RecurrenceRule` ergaenzen mit:
-   `frequency` (Enum `.daily`, `.weekly`, `.monthly`, `.yearly`),
-   `interval: Int = 1`, `count: Int?`, `until: Date?`,
-   `byDay: [Int]` (1 = Sonntag bis 7 = Samstag, wie Calendar.component),
-   `byMonthDay: [Int]`. `CalendarEvent` bekommt zusaetzlich
-   `recurrence: RecurrenceRule?` und `exceptionDates: [Date]`.
-2. In ICSParser.swift RRULE und EXDATE einlesen und in diese Felder
-   schreiben. Unbekannte RRULE-Teile (z. B. BYSETPOS, WKST) werden
-   ignoriert, ohne den Termin zu verwerfen. Eine RRULE mit unbekanntem FREQ
-   ergibt `recurrence = nil`, der Termin bleibt als Einzeltermin erhalten.
-3. In RecurrenceExpander.swift die Funktion
+1. In CalendarModels.swift den Typ `RecurrenceRule` (Equatable, Sendable)
+   ergaenzen mit: `frequency` (Enum `.daily`, `.weekly`, `.monthly`,
+   `.yearly`), `interval: Int = 1`, `count: Int?`, `until: Date?`,
+   `byDay: [WeekdayRule]`, `byMonthDay: [Int]`, `byMonth: [Int]`.
+   `WeekdayRule` hat `weekday: Int` (1 = Sonntag bis 7 = Samstag, wie
+   Calendar.component) und `ordinal: Int?` (`2TU` -> 2, `-1FR` -> -1,
+   `MO` -> nil) - ohne die Ordinalzahl wuerde Googles "jeden 2. Dienstag"
+   zu "jeden Dienstag". `CalendarEvent` bekommt zusaetzlich
+   `recurrence: RecurrenceRule?`, `exceptionDates: [Date]` und
+   `timeZone: TimeZone?` (Zone des DTSTART: UTC bei `Z`, die TZID-Zone,
+   sonst `defaultTimeZone`). Alle drei als Parameter mit Default (`nil`,
+   `[]`, `nil`) am Ende des bestehenden `init` - bestehende Aufrufe und
+   Tests aus Sub-Task 1 bleiben unveraendert gueltig.
+2. In ICSParser.swift RRULE und EXDATE einlesen. UNTIL wie DTSTART
+   aufloesen (bestehende `resolve`-Logik wiederverwenden); ein reines Datum
+   als UNTIL gilt bis zum Ende dieses Tages. EXDATE kann mehrfach vorkommen
+   und je Zeile mehrere Werte durch Komma getrennt tragen, mit eigener
+   TZID oder VALUE=DATE - alle Werte sammeln. Harmlose unbekannte Teile
+   (WKST) werden ignoriert. Teile, die die Menge einschraenken und hier
+   nicht ausgewertet werden (BYSETPOS, BYWEEKNO, BYYEARDAY, BYHOUR,
+   BYMINUTE, BYSECOND), ergeben `recurrence = nil`: der Termin bleibt als
+   Einzeltermin erhalten, statt Phantom-Instanzen zu erzeugen. Ebenso ein
+   unbekanntes FREQ, ein INTERVAL < 1 und ein BYDAY mit Ordinalzahl bei
+   FREQ=WEEKLY oder DAILY.
+3. In RecurrenceExpander.swift `public enum RecurrenceExpander` mit
    `public static func expand(_ events: [CalendarEvent], in range: Range<Date>, calendar: Calendar = .current) -> [CalendarEvent]`
    anlegen. Sie liefert ausschliesslich Instanzen, deren Start in `range`
-   liegt.
-4. Die Expansion laeuft ueber Kalenderkomponenten (`calendar.date(byAdding:)`),
-   nicht ueber Addition fester Sekundenbetraege - sonst verschiebt sich die
-   Ortszeit beim Wechsel zwischen Sommer- und Winterzeit.
-5. Die Schleife bricht ab, sobald der Kandidat hinter `range.upperBound`
-   oder hinter `until` liegt, oder wenn `count` erreicht ist. Zusaetzlich
-   eine harte Obergrenze von 1000 Iterationen je Serie, damit eine kaputte
-   Regel keine Endlosschleife erzeugt.
+   liegt, sortiert nach Start. Je Serie rechnet sie in
+   `event.timeZone ?? calendar.timeZone` (Kopie des uebergebenen Calendar
+   mit dieser Zone), damit die Ortszeit der Serie gilt, nicht die des Macs.
+   Termine ohne `recurrence` werden durchgereicht, wenn ihr Start in
+   `range` liegt.
+4. Die Expansion laeuft ueber Kalenderkomponenten, nicht ueber Addition
+   fester Sekundenbetraege - sonst verschiebt sich die Ortszeit beim
+   Wechsel zwischen Sommer- und Winterzeit. Je Periode (Tag, Woche, Monat,
+   Jahr ab DTSTART, im Abstand `interval`) werden die Kandidaten erzeugt:
+   - WEEKLY ohne BYDAY: Wochentag des DTSTART; mit BYDAY: jeder genannte
+     Wochentag dieser Woche (Wochenbeginn Montag).
+   - MONTHLY ohne BYDAY/BYMONTHDAY: Tag des DTSTART; ein Monat ohne diesen
+     Tag (31. im April) wird uebersprungen, nicht auf den 30. geklemmt.
+     BYMONTHDAY negativ zaehlt vom Monatsende (-1 = letzter Tag). BYDAY mit
+     Ordinalzahl = n-ter bzw. vom Ende gezaehlter Wochentag im Monat, ohne
+     Ordinalzahl jeder dieser Wochentage im Monat.
+   - YEARLY: Datum des DTSTART, mit BYMONTH je genanntem Monat; Kombination
+     mit BYDAY wie MONTHLY innerhalb jedes Monats.
+   - DAILY: mit BYDAY/BYMONTH/BYMONTHDAY als Filter.
+   Uhrzeit immer die des DTSTART. Kandidaten vor DTSTART zaehlen nicht.
+   Dauer jeder Instanz = Dauer des Mastertermins (bei Ganztag in
+   Kalendertagen).
+5. Abbruch, sobald der Kandidat hinter `range.upperBound` oder hinter
+   `until` liegt, oder wenn `count` erreicht ist (COUNT zaehlt ab DTSTART,
+   auch Instanzen vor dem Fenster). Ohne COUNT darf die Schleife vor dem
+   ersten Durchlauf direkt zur Periode kurz vor `range.lowerBound`
+   vorspringen (Zahl der Perioden ueber `calendar.dateComponents` berechnen
+   und auf ein Vielfaches von `interval` abrunden) - eine taegliche Serie
+   seit drei Jahren erreicht sonst nie das Fenster. Danach eine harte
+   Obergrenze von 1000 Perioden je Serie; mit COUNT ohne Vorsprung eine
+   Obergrenze von 10000 Perioden. Beides verhindert Endlosschleifen bei
+   kaputten Regeln.
 6. Instanzen, deren Start in `exceptionDates` steht, werden entfernt.
-7. Ein Termin mit gesetzter `recurrenceID` ist eine Ausnahme: er ersetzt die
-   generierte Instanz derselben `uid` mit demselben Startzeitpunkt, statt
-   zusaetzlich zu erscheinen.
+7. Ein Termin mit gesetzter `recurrenceID` ist eine Ausnahme: er
+   unterdrueckt die generierte Instanz derselben `uid`, deren Start gleich
+   seiner `recurrenceID` ist - auch wenn er selbst ausserhalb von `range`
+   verschoben wurde. Er selbst erscheint, wenn sein eigener Start in
+   `range` liegt. Generierte Instanzen tragen `recurrence = nil`,
+   `recurrenceID = nil` und dieselbe `uid`; ihre `id` unterscheidet sich
+   ueber den Start.
 8. In CalendarRecurrenceTests.swift die Suite `RecurrenceExpanderTests`
    anlegen, mit je einem Test fuer: FREQ=WEEKLY;BYDAY=MO,WE trifft nur
    Montag und Mittwoch; INTERVAL=2 ueberspringt jede zweite Woche; COUNT=3
    endet nach drei Instanzen; UNTIL in der Vergangenheit liefert nichts;
-   EXDATE entfernt genau eine Instanz; RECURRENCE-ID ersetzt statt zu
-   verdoppeln; eine Serie ohne UNTIL und COUNT liefert im
-   Zwei-Stunden-Fenster genau die Instanzen darin; eine taegliche Serie
-   ueber die Zeitumstellung behaelt ihre Ortszeit.
+   EXDATE mit zwei Werten in einer Zeile entfernt genau diese zwei
+   Instanzen; RECURRENCE-ID ersetzt statt zu verdoppeln; RECURRENCE-ID mit
+   Verschiebung aus dem Fenster heraus unterdrueckt die Instanz; eine Serie
+   ohne UNTIL und COUNT liefert im Zwei-Stunden-Fenster genau die
+   Instanzen darin; eine taegliche Serie mit DTSTART vor drei Jahren
+   liefert heute ihre Instanz; eine taegliche Serie ueber die
+   Zeitumstellung behaelt ihre Ortszeit; MONTHLY;BYDAY=2TU trifft nur den
+   zweiten Dienstag; MONTHLY am 31. ueberspringt Monate ohne 31.; BYSETPOS
+   ergibt einen Einzeltermin. Parser-Tests fuer RRULE/EXDATE gehoeren
+   ebenfalls in diese Suite. Alle Daten mit fester Zone, keine
+   Abhaengigkeit von der Zone des Testrechners.
 
 Definition of Done:
 - [ ] Serie ohne Ende bleibt im Fenster begrenzt, keine Endlosschleife.
@@ -250,14 +299,15 @@ Definition of Done:
 - [ ] Neue und bestehende Tests laufen gruen.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-2
-  feature/issue-20-part-1` und `git checkout feature/issue-20-part-2`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-2`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-2 origin/feature/issue-20-part-1` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-2 feature/issue-20-part-1` anlegen (part-1 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
 - Bestehende Signaturen aus Sub-Task 1 nicht brechen; `ICSParser.parse`
-  behaelt Name und Parameter.
+  behaelt Name und Parameter, der `CalendarEvent`-init bleibt mit den
+  bisherigen Argumenten aufrufbar.
 - Waehrend der Arbeit nur `./Scripts/test.sh --filter RecurrenceExpanderTests`.
 - Genau einmal vor dem finalen Commit die CI-Kette: `swift build &&
   ./Scripts/test.sh && swift build -c release && ./Scripts/bundle-app.sh release`.
@@ -496,7 +546,8 @@ Aufgaben:
    `start()` laedt die CalendarConfig, `stop()` raeumt alle Timer ab.
 4. Zwei Timer: ein Poll-Timer mit `config.pollSeconds` holt den Feed ueber
    CalendarFeedFetcher, parst mit ICSParser, expandiert mit
-   RecurrenceExpander im Fenster `now ... now + leadMinutes + 15 min` und
+   RecurrenceExpander im Fenster `now - graceMinutes ... now + leadMinutes
+   + 15 min` (sonst fehlt ein gerade begonnener Serientermin) und
    legt die Termine ab. Ein Tick-Timer mit 1 s rechnet nur die Restzeiten
    und Stufen neu; er wird ausschliesslich gestartet, solange mindestens
    eine Warnung sichtbar ist, und wieder abgeraeumt, sobald keine mehr
