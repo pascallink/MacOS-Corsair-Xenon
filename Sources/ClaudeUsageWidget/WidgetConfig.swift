@@ -63,6 +63,9 @@ struct WidgetConfig: Codable, Equatable {
     var sessionActiveSeconds: Double = 300
     /// Chats untouched for longer than this many hours drop off the list.
     var sessionOpenHours: Double = 12
+    /// Termin-Karte oberhalb der Nutzungsanzeige. Feed, Vorlauf und Poll-
+    /// Intervall stehen in calendar.json (CalendarConfig), nicht hier.
+    var showCalendar: Bool = true
 
     // MARK: Tolerant decoding
     // The synthesized Codable init requires every key to be present, so a
@@ -92,6 +95,7 @@ struct WidgetConfig: Codable, Equatable {
         sessionRows = try c.decodeIfPresent(Int.self, forKey: .sessionRows) ?? d.sessionRows
         sessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .sessionActiveSeconds) ?? d.sessionActiveSeconds
         sessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .sessionOpenHours) ?? d.sessionOpenHours
+        showCalendar = try c.decodeIfPresent(Bool.self, forKey: .showCalendar) ?? d.showCalendar
     }
 
     static var fileURL: URL {
