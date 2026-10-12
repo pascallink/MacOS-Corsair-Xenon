@@ -196,6 +196,16 @@ public enum ICSParser {
         if let recProp = first("RECURRENCE-ID") {
             recurrence = resolve(recProp, defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones)?.date
         }
+        var exceptionDates: [Date] = []
+        for prop in props where prop.name == "EXDATE" {
+            for part in prop.value.split(separator: ",", omittingEmptySubsequences: true) {
+                let single = Property(name: prop.name, params: prop.params, value: String(part))
+                if let date = resolve(single, defaultTimeZone: defaultTimeZone, unknownZones: &unknownZones)?.date {
+                    exceptionDates.append(date)
+                }
+            }
+        }
+        let rule = first("RRULE").flatMap { parseRule($0.value, start: start) }
         return CalendarEvent(
             uid: first("UID")?.value ?? "",
             title: first("SUMMARY").map { unescape($0.value) } ?? "",
@@ -204,8 +214,116 @@ public enum ICSParser {
             end: resolvedEnd,
             isAllDay: start.isAllDay,
             status: first("STATUS")?.value.trimmingCharacters(in: .whitespaces),
-            recurrenceID: recurrence
+            recurrenceID: recurrence,
+            recurrence: rule,
+            exceptionDates: exceptionDates,
+            timeZone: start.zone
         )
+    }
+
+    // MARK: - Wiederholung
+
+    private static let weekdayCodes = ["SU": 1, "MO": 2, "TU": 3, "WE": 4, "TH": 5, "FR": 6, "SA": 7]
+
+    /// Wertet eine RRULE aus. nil bei Regeln, die hier nicht korrekt
+    /// ausgewertet werden koennen: der Termin bleibt dann ein Einzeltermin,
+    /// statt Phantom-Instanzen zu erzeugen.
+    private static func parseRule(_ raw: String, start: Resolved) -> RecurrenceRule? {
+        var frequency: RecurrenceRule.Frequency?
+        var interval = 1
+        var count: Int?
+        var until: Date?
+        var byDay: [WeekdayRule] = []
+        var byMonthDay: [Int] = []
+        var byMonth: [Int] = []
+
+        for part in raw.split(separator: ";", omittingEmptySubsequences: true) {
+            let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2 else { return nil }
+            let key = pair[0].trimmingCharacters(in: .whitespaces).uppercased()
+            let value = pair[1].trimmingCharacters(in: .whitespaces).uppercased()
+            let items = value.split(separator: ",", omittingEmptySubsequences: true).map(String.init)
+            switch key {
+            case "FREQ":
+                switch value {
+                case "DAILY": frequency = .daily
+                case "WEEKLY": frequency = .weekly
+                case "MONTHLY": frequency = .monthly
+                case "YEARLY": frequency = .yearly
+                default: return nil
+                }
+            case "INTERVAL":
+                guard let n = Int(value), n >= 1 else { return nil }
+                interval = n
+            case "COUNT":
+                guard let n = Int(value), n >= 1 else { return nil }
+                count = n
+            case "UNTIL":
+                // Zone des DTSTART gilt fuer Werte ohne Z; reines Datum
+                // zaehlt bis zum Ende des Tages.
+                let single = Property(name: "UNTIL", params: [:], value: value)
+                var ignored = Set<String>()
+                guard let resolved = resolve(single, defaultTimeZone: start.zone, unknownZones: &ignored) else { return nil }
+                if resolved.isAllDay {
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = resolved.zone
+                    guard let next = calendar.date(byAdding: .day, value: 1, to: resolved.date) else { return nil }
+                    until = next.addingTimeInterval(-1)
+                } else {
+                    until = resolved.date
+                }
+            case "BYDAY":
+                guard !items.isEmpty else { return nil }
+                for item in items {
+                    guard let rule = parseWeekday(item) else { return nil }
+                    byDay.append(rule)
+                }
+            case "BYMONTHDAY":
+                guard !items.isEmpty else { return nil }
+                for item in items {
+                    guard let n = Int(item), n != 0, (-31...31).contains(n) else { return nil }
+                    byMonthDay.append(n)
+                }
+            case "BYMONTH":
+                guard !items.isEmpty else { return nil }
+                for item in items {
+                    guard let n = Int(item), (1...12).contains(n) else { return nil }
+                    byMonth.append(n)
+                }
+            case "WKST":
+                continue
+            default:
+                // BYSETPOS, BYWEEKNO, BYYEARDAY, BYHOUR, BYMINUTE, BYSECOND
+                // und alles Unbekannte: nicht auswertbar.
+                return nil
+            }
+        }
+        guard let frequency else { return nil }
+        let hasOrdinal = byDay.contains { $0.ordinal != nil }
+        switch frequency {
+        case .daily, .weekly:
+            if hasOrdinal { return nil }
+        case .monthly:
+            break
+        case .yearly:
+            // Ohne BYMONTH waeren BYDAY/BYMONTHDAY ueber das ganze Jahr
+            // zu lesen; das wird nicht ausgewertet.
+            if byMonth.isEmpty, !byDay.isEmpty || !byMonthDay.isEmpty { return nil }
+        }
+        return RecurrenceRule(
+            frequency: frequency, interval: interval, count: count, until: until,
+            byDay: byDay, byMonthDay: byMonthDay, byMonth: byMonth
+        )
+    }
+
+    /// `MO`, `2TU`, `-1FR`, `+1SU`.
+    private static func parseWeekday(_ item: String) -> WeekdayRule? {
+        guard item.count >= 2 else { return nil }
+        guard let weekday = weekdayCodes[String(item.suffix(2))] else { return nil }
+        let prefix = String(item.dropLast(2))
+        if prefix.isEmpty { return WeekdayRule(weekday: weekday) }
+        guard let n = Int(prefix), n != 0, (-53...53).contains(n) else { return nil }
+        return WeekdayRule(weekday: weekday, ordinal: n)
     }
 
     // MARK: - Zeitpunkte
