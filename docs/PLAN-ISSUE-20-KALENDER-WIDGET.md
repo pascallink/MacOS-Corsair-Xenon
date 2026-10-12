@@ -32,7 +32,7 @@ Block steht, existiert fuer sie nicht.
 | 3 | `feature/issue-20-part-3` (Base part-2) | `kit` | Auswahl und Eskalationsstufe |
 | 4 | `feature/issue-20-part-4` (Base part-3) | `kit` | Feed-Abruf und Konfiguration |
 | 5 | `feature/issue-20-part-5` (Base part-4) | `app` | Panel im Dashboard |
-| 6 | `feature/issue-20-part-6` (Base part-5) | `widget` | Karte im Menueleisten-Widget |
+| 6 | `feature/issue-20-part-6` (Base part-5) | `widget` | Karte im Menueleisten-Widget, AgendaModel ins Kit |
 | 7 | `feature/issue-20-part-7` (Base part-6) | `repo` | Doku |
 
 Sub-Task 1 bis 4 bauen die komplette Logik in `XeneonEdgeKit` auf, ohne dass
@@ -712,80 +712,120 @@ Constraints:
 ## Sub-Task 6 - Karte im Menueleisten-Widget
 
 * **Scope:** `widget` - **Branch:** `feature/issue-20-part-6` (Base part-5)
-* **Zu erstellen:** `Sources/ClaudeUsageWidget/AgendaCard.swift`,
-  `Sources/ClaudeUsageWidget/AgendaViewModel.swift`
-* **Zu aendern:** `Sources/ClaudeUsageWidget/WidgetConfig.swift`,
+* **Zu erstellen:** `Sources/XeneonEdgeKit/Calendar/AgendaModel.swift`,
+  `Sources/XeneonEdgeKit/Calendar/ReminderFormat.swift`,
+  `Sources/ClaudeUsageWidget/AgendaCard.swift`,
+  `Tests/XeneonEdgeKitTests/CalendarFormatTests.swift`
+* **Zu aendern:** `Sources/XeneonEdgeApp/Models.swift`,
+  `Sources/XeneonEdgeApp/AgendaPanel.swift`,
+  `Sources/ClaudeUsageWidget/WidgetConfig.swift`,
   `Sources/ClaudeUsageWidget/WidgetView.swift`,
   `Sources/ClaudeUsageWidget/WidgetAppDelegate.swift`
 * **Definition of Done:** Ohne Warnung ist die Widget-Darstellung identisch
-  zu vorher; die Default-Groesse 560x320 bleibt ohne Clipping.
+  zu vorher; mit Warnung waechst das Fenster um die Karte statt Inhalt
+  abzuschneiden; App und Widget teilen sich ein einziges AgendaModel.
+
+**Abweichung vom urspruenglichen Plan:** statt eines eigenen
+`AgendaViewModel` im Widget wandert das fertige `AgendaModel` aus
+`XeneonEdgeApp/Models.swift` nach `XeneonEdgeKit`. Eine Kopie im Widget
+haette Timer-, Abruf-, Stale- und Debug-Logik doppelt gepflegt.
 
 ```
 task: implement_subtask
 branch: feature/issue-20-part-6
 base_branch: feature/issue-20-part-5
 target: ClaudeUsageWidget
-suite: -
+suite: ReminderFormatTests
 
 Ziel: Das schwebende Menueleisten-Widget zeigt anstehende Termine ueber der
-Nutzungsanzeige und meldet die letzte Stufe zusaetzlich im
-Menueleisten-Titel. Bisher sieht das Widget keine Termine. Nach dieser
-Aenderung ist die Warnung auch sichtbar, wenn das Dashboard aus ist.
+Nutzungsanzeige und meldet die dringendste Warnung zusaetzlich im
+Menueleisten-Titel. Bisher sieht nur das Dashboard Termine. Nach dieser
+Aenderung ist die Warnung auch sichtbar, wenn das Dashboard aus ist, und
+App und Widget nutzen dasselbe Modell aus XeneonEdgeKit.
 
 Dateiebene:
-- Zu erstellen: Sources/ClaudeUsageWidget/AgendaViewModel.swift, Sources/ClaudeUsageWidget/AgendaCard.swift
-- Zu aendern: Sources/ClaudeUsageWidget/WidgetConfig.swift, Sources/ClaudeUsageWidget/WidgetView.swift, Sources/ClaudeUsageWidget/WidgetAppDelegate.swift
+- Zu erstellen: Sources/XeneonEdgeKit/Calendar/AgendaModel.swift, Sources/XeneonEdgeKit/Calendar/ReminderFormat.swift, Sources/ClaudeUsageWidget/AgendaCard.swift, Tests/XeneonEdgeKitTests/CalendarFormatTests.swift
+- Zu aendern: Sources/XeneonEdgeApp/Models.swift, Sources/XeneonEdgeApp/AgendaPanel.swift, Sources/ClaudeUsageWidget/WidgetConfig.swift, Sources/ClaudeUsageWidget/WidgetView.swift, Sources/ClaudeUsageWidget/WidgetAppDelegate.swift
 
 Aufgaben:
-1. In WidgetConfig.swift `var showCalendar: Bool = true` ergaenzen,
+1. `AgendaModel` unveraendert im Verhalten aus
+   Sources/XeneonEdgeApp/Models.swift nach
+   Sources/XeneonEdgeKit/Calendar/AgendaModel.swift verschieben (`import
+   Combine`, `public final class`, `public init()`, Published-Felder
+   `public private(set)`, `start()`/`stop()` public). Inklusive des
+   `#if DEBUG`-Pfads fuer `XENEON_CALENDAR_ICS_FILE`. In Models.swift
+   bleibt nichts davon zurueck; die App nutzt den Kit-Typ, AppDelegate
+   und AgendaPanel brauchen hoechstens Import-Anpassungen.
+2. ReminderFormat.swift: `public enum ReminderFormat` mit
+   `static func countdown(_ remaining: TimeInterval) -> String` (Logik
+   unveraendert aus `ReminderRow.countdown` in AgendaPanel.swift: mm:ss,
+   h:mm:ss ab einer Stunde, "laeuft" bei negativer Restzeit, aufrunden),
+   `static func clock(_ date: Date, timeZone: TimeZone = .current) -> String`
+   (HH:mm, 24 h, POSIX-Locale) und
+   `static func statusTitle(_ reminder: CalendarReminder, timeZone: TimeZone = .current) -> String?`:
+   ab Stufe .quarter "HH:mm - N min" mit aufgerundeten Minuten, bei
+   Restzeit unter 60 s "HH:mm - jetzt", bei negativer Restzeit
+   "HH:mm - laeuft"; unterhalb .quarter nil. AgendaPanel nutzt
+   `countdown` und `clock` statt eigener Formatierung.
+3. In WidgetConfig.swift `var showCalendar: Bool = true` ergaenzen,
    inklusive Zeile im toleranten `init(from:)` mit `decodeIfPresent`.
-   Vorlauf, Poll-Intervall und Titel-Anzeige kommen aus der gemeinsamen
-   CalendarConfig in XeneonEdgeKit, nicht aus dieser Datei - die Feed-URL
-   wird hier nicht dupliziert.
-2. AgendaViewModel.swift anlegen: `final class AgendaViewModel:
-   ObservableObject` mit `@Published var reminders: [CalendarReminder]`,
-   `@Published var overflow: Int`, `@Published var isStale: Bool`.
-   Poll-Timer und 1-s-Tick-Timer wie in AgendaModel des App-Targets: Tick
-   nur solange eine Warnung sichtbar ist, Restzeit immer aus `Date()`, Abruf
-   abseits des Main-Threads, Zuweisung auf dem Main-Thread, isStale nach
-   drei Fehlversuchen.
-3. AgendaCard.swift anlegen: eine View, die je Warnung eine Zeile mit
-   Uhrzeit (HH:mm), Titel (nur wenn CalendarConfig.showEventTitles),
-   Countdown und einem Balken in Stufenfarbe zeigt, dazu bei overflow > 0
-   die Zeile "+N weitere". Die Karte nutzt die vorhandenen Bausteine aus
-   WidgetView.swift (WidgetTheme, die Balkenform, Capsule-Badges).
-4. Stufenfarben: .hour -> WidgetTheme.good, .halfHour -> WidgetTheme.accent,
-   .quarter -> WidgetTheme.warn, .fiveMinutes -> WidgetTheme.critical,
-   .imminent -> WidgetTheme.critical mit pulsierender Deckkraft (1.0 zu
-   0.45, 1 s easeInOut, repeatForever, autoreverses). Ab .quarter
-   zusaetzlich der Kartenrand in Stufenfarbe mit opacity 0.35, ab
-   .fiveMinutes zusaetzlich der Kartenhintergrund mit opacity 0.12.
-5. In WidgetView.swift die Karte oberhalb der Nutzungsanzeige einsetzen,
-   nur wenn `config.showCalendar` gesetzt ist und mindestens eine Warnung
-   ansteht. Ohne Warnung belegt sie keinen Platz, damit die konfigurierte
-   height unveraendert reicht.
-6. In WidgetAppDelegate.swift dem Statusleisten-Item ab Stufe .quarter
-   zusaetzlich einen Kurztitel geben, Form "14:30 - 12 min", basierend auf
-   der dringendsten Warnung. Faellt die Stufe darunter oder verschwindet die
-   Warnung, wird der Titel wieder geleert und nur das Symbol bleibt.
-7. Die Terminzeilen ersetzen nichts am bestehenden Aufbau: ohne
-   anstehenden Termin sieht das Widget exakt aus wie vorher.
+   Vorlauf, Poll-Intervall, Titel-Anzeige und Feed-URL kommen aus der
+   gemeinsamen CalendarConfig, nicht aus dieser Datei.
+4. AgendaCard.swift: View fuer das Widget mit je Warnung einer Zeile
+   (Uhrzeit, Titel nur wenn `showEventTitles`, Countdown, Balken in
+   Stufenfarbe) und bei overflow > 0 der Zeile "+N weitere", bei
+   `isStale` "Stand veraltet". Bausteine aus WidgetView.swift
+   (WidgetTheme, Balkenform) nutzen. Stufenfarben: .hour -> good,
+   .halfHour -> accent, .quarter -> warn, .fiveMinutes/.imminent ->
+   critical, .imminent pulsierend (1.0 zu 0.45, 1 s easeInOut,
+   repeatForever, autoreverses). Ab .quarter Kartenrand in Stufenfarbe
+   (opacity 0.35), ab .fiveMinutes Kartenhintergrund (opacity 0.12) -
+   jeweils nach der dringendsten Warnung (hoechster Rang in
+   `ReminderStage.allCases`, nie das Minimum). Feste Zeilenhoehen und eine
+   `static func height(rows: Int, extraLines: Int) -> CGFloat`, die die
+   exakte Hoehe der Karte liefert.
+5. In WidgetView.swift die Karte als erstes Element oberhalb der
+   Nutzungsanzeige einsetzen, nur wenn `config.showCalendar` gesetzt ist und
+   mindestens eine Warnung ansteht. Ohne Warnung entsteht weder Karte noch
+   Abstand - die Darstellung ist dann identisch zu vorher. WidgetView
+   bekommt das AgendaModel als `@ObservedObject`.
+6. In WidgetAppDelegate.swift ein AgendaModel halten, bei `showCalendar`
+   in `applicationDidFinishLaunching` und in `reloadConfig` starten (sonst
+   stoppen). Das Fenster waechst mit der Karte: Zielhoehe =
+   `config.height` plus `AgendaCard.height(...)` plus Abstand, solange die
+   Karte sichtbar ist, sonst `config.height`. Die Groesse nur bei
+   geaenderter Zeilenzahl neu setzen (nicht jede Sekunde), ueber
+   `position()`, damit die konfigurierte Ecke verankert bleibt (bei
+   bottom-Ecken waechst das Fenster nach oben). Beobachtung per Combine
+   (`$reminders`, `$overflow`, `$isStale`), Cancellables halten.
+7. Statusleisten-Item: ab Stufe .quarter der dringendsten Warnung
+   `button.title = ReminderFormat.statusTitle(...)`, `imagePosition =
+   .imageLeading` und `statusItem.length = NSStatusItem.variableLength`;
+   sonst Titel leeren und zurueck auf `NSStatusItem.squareLength` - nur das
+   Symbol bleibt. Titel nur setzen, wenn er sich aendert.
+8. In CalendarFormatTests.swift die Suite `ReminderFormatTests`: countdown
+   fuer 0, 59.2, 61, 3599, 3600, 3725 s und -5 s; clock mit fester Zone;
+   statusTitle nil bei .halfHour, "HH:mm - 12 min" bei 11:30 Restzeit,
+   "jetzt" bei 30 s, "laeuft" bei -10 s. Feste Zeitzone in jedem Test.
 
 Definition of Done:
 - [ ] Ohne Warnung ist die Darstellung unveraendert, die Default-Groesse 560x320 reicht ohne Clipping.
+- [ ] Mit Warnung waechst das Fenster um die Karte, an der konfigurierten Ecke verankert; kein Inhalt wird abgeschnitten.
 - [ ] Der Menueleisten-Titel erscheint ab Stufe .quarter und verschwindet wieder.
+- [ ] Es gibt genau ein AgendaModel (in XeneonEdgeKit); die App verhaelt sich wie vorher.
 - [ ] Die Feed-URL steht nur in calendar.json, nicht in claude-widget.json.
-- [ ] Neue und bestehende Tests laufen gruen.
+- [ ] Neue und bestehende Tests laufen gruen; der Release-Build enthaelt XENEON_CALENDAR_ICS_FILE in keinem Binary.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-6
-  feature/issue-20-part-5` und `git checkout feature/issue-20-part-6`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-6`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-6 origin/feature/issue-20-part-5` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-6 feature/issue-20-part-5` anlegen (part-5 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
 - Keine Auswahl- oder Stufenlogik im Widget nachbauen - alles kommt aus
   XeneonEdgeKit.
+- Waehrend der Arbeit `./Scripts/test.sh --filter ReminderFormatTests`.
 - Genau einmal vor dem finalen Commit die CI-Kette: `swift build &&
   ./Scripts/test.sh && swift build -c release && ./Scripts/bundle-app.sh release`.
 - Abschluss melden: Branch, Commit-SHA, geaenderte Dateien, Testergebnis und
