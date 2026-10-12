@@ -567,7 +567,8 @@ Constraints:
 ## Sub-Task 5 - Panel im Dashboard
 
 * **Scope:** `app` - **Branch:** `feature/issue-20-part-5` (Base part-4)
-* **Zu erstellen:** `Sources/XeneonEdgeApp/AgendaPanel.swift`
+* **Zu erstellen:** `Sources/XeneonEdgeApp/AgendaPanel.swift`,
+  `Scripts/sample-calendar.sh`
 * **Zu aendern:** `Sources/XeneonEdgeApp/Models.swift`,
   `Sources/XeneonEdgeApp/DashboardView.swift` (Eskalation: 799 Zeilen,
   direkt an den `umsetzer`), `Sources/XeneonEdgeApp/AppDelegate.swift`,
@@ -589,7 +590,7 @@ XeneonEdgeKit, ohne Anzeige. Nach dieser Aenderung erscheint das Panel
 "Termine", sobald ein Termin innerhalb der Vorlaufzeit beginnt.
 
 Dateiebene:
-- Zu erstellen: Sources/XeneonEdgeApp/AgendaPanel.swift
+- Zu erstellen: Sources/XeneonEdgeApp/AgendaPanel.swift, Scripts/sample-calendar.sh
 - Zu aendern: Sources/XeneonEdgeKit/Config/AppConfig.swift, Sources/XeneonEdgeApp/Models.swift, Sources/XeneonEdgeApp/DashboardView.swift, Sources/XeneonEdgeApp/AppDelegate.swift
 
 Aufgaben:
@@ -601,22 +602,40 @@ Aufgaben:
    Sources/ClaudeUsageWidget/WidgetView.swift:
    `static let warn = Color(red: 0.95, green: 0.55, blue: 0.20)` und
    `static let critical = Color(red: 0.92, green: 0.30, blue: 0.30)`.
-   Ausserdem in der mittleren Spalte, vor dem Claude-Panel, die Zeile
-   `if configStore.config.showCalendar { AgendaPanel() }` einfuegen. Sonst
-   nichts an dieser Datei aendern.
+   Ausserdem in der mittleren Spalte (der VStack mit MediaPanel und
+   ClaudeUsagePanel in `DashboardView.body`) als erste Zeile
+   `if configStore.config.showCalendar { AgendaPanel() }` einfuegen - oben,
+   weil eine Terminwarnung das Dringendste auf dem Edge ist - und die
+   umschliessende Bedingung `if configStore.config.showMedia || ...` um
+   `|| configStore.config.showCalendar` erweitern, sonst bleibt das Panel
+   unsichtbar, wenn die anderen Panels der Spalte aus sind. In
+   `DashboardView` `@EnvironmentObject var agenda: AgendaModel` ergaenzen,
+   neben den anderen EnvironmentObjects. Sonst nichts an dieser Datei
+   aendern.
 3. In Models.swift die Klasse `AgendaModel: ObservableObject` ergaenzen,
    nach dem Muster von ClaudeUsageModel in derselben Datei:
    `@Published var reminders: [CalendarReminder]`,
-   `@Published var overflow: Int`, `@Published var isStale: Bool`.
-   `start()` laedt die CalendarConfig, `stop()` raeumt alle Timer ab.
+   `@Published var overflow: Int`, `@Published var isStale: Bool`,
+   `@Published var showEventTitles: Bool` (aus CalendarConfig).
+   `start()` laedt die CalendarConfig neu und ist idempotent: ein erneuter
+   Aufruf raeumt zuerst alle Timer ab und startet dann neu, er verdoppelt
+   nie Timer. Ohne `isConfigured` startet `start()` keinen Timer und baut
+   keinen Request. `stop()` raeumt alle Timer ab und leert die
+   Published-Felder.
 4. Zwei Timer: ein Poll-Timer mit `config.pollSeconds` holt den Feed ueber
-   CalendarFeedFetcher, parst mit ICSParser, expandiert mit
+   CalendarFeedFetcher (ETag und Last-Modified der letzten Antwort
+   mitgeben; bei `.notModified` den gespeicherten Bestand weiterverwenden),
+   parst mit ICSParser, expandiert mit
    RecurrenceExpander im Fenster `now - graceMinutes ... now + leadMinutes
    + 15 min` (sonst fehlt ein gerade begonnener Serientermin) und
-   legt die Termine ab. Ein Tick-Timer mit 1 s rechnet nur die Restzeiten
-   und Stufen neu; er wird ausschliesslich gestartet, solange mindestens
-   eine Warnung sichtbar ist, und wieder abgeraeumt, sobald keine mehr
-   ansteht.
+   legt die geparsten (unexpandierten) Termine ab; nach jedem Poll -
+   auch bei `.notModified` - neu expandieren und
+   `UpcomingReminders.select(events:now:options:)` mit
+   `config.reminderOptions` aufrufen. Ein Tick-Timer mit 1 s ruft `select`
+   auf der zuletzt expandierten Liste mit `Date()` erneut auf, damit
+   Restzeit, Stufe und das Herausfallen nach `graceMinutes` sekundengenau
+   stimmen; er wird ausschliesslich gestartet, solange mindestens eine
+   Warnung sichtbar ist, und wieder abgeraeumt, sobald keine mehr ansteht.
 5. Restzeiten immer aus `Date()` gegen den Startzeitpunkt rechnen, nie aus
    aufsummierten Ticks. Der Feed-Abruf laeuft ausserhalb des Main-Threads,
    die Zuweisung an die @Published-Felder auf dem Main-Thread.
@@ -626,37 +645,60 @@ Aufgaben:
 7. In AgendaPanel.swift die View `AgendaPanel` anlegen, die die bestehende
    `Panel`-Huelle aus DashboardView.swift nutzt (Titel "Termine", Symbol
    "calendar"). Je Warnung eine Zeile mit: Uhrzeit (HH:mm), Titel nur wenn
-   `showEventTitles` gesetzt ist, Countdown (mm:ss unter einer Stunde),
+   `showEventTitles` gesetzt ist, Countdown (mm:ss unter einer Stunde,
+   h:mm:ss ab einer Stunde, "laeuft" bei negativer Restzeit),
    sowie ein Fortschrittsbalken in Stufenfarbe. Bei `overflow > 0` eine
    Zeile "+N weitere". Ohne Warnung zeigt das Panel eine ruhige Zeile
-   "keine Termine in der naechsten Stunde".
+   "keine Termine in der naechsten Stunde" (bei abweichendem Vorlauf
+   "keine Termine in den naechsten N Minuten"). Bei `isStale` eine kleine
+   Zeile "Stand veraltet" in EdgeTheme.textSecondary - die Termine bleiben
+   stehen.
 8. Stufenfarben: .hour -> EdgeTheme.good, .halfHour -> EdgeTheme.accent,
    .quarter -> EdgeTheme.warn, .fiveMinutes -> EdgeTheme.critical,
    .imminent -> EdgeTheme.critical mit pulsierender Deckkraft (1.0 zu 0.45,
    1 s easeInOut, repeatForever, autoreverses). Ab .quarter zusaetzlich der
    Panelrand in Stufenfarbe mit opacity 0.35, ab .fiveMinutes zusaetzlich
-   der Panelhintergrund in Stufenfarbe mit opacity 0.12.
+   der Panelhintergrund in Stufenfarbe mit opacity 0.12. Massgeblich ist die
+   dringendste Warnung. Die `Panel`-Huelle zeichnet einen deckenden
+   Hintergrund und bleibt unveraendert: Rand und Toenung als `.overlay`
+   mit `RoundedRectangle(cornerRadius: 18)` (gleicher Radius wie Panel)
+   ueber die Huelle legen, mit `.allowsHitTesting(false)`.
 9. In AppDelegate.swift den Menuepunkt "Termine" im Widgets-Menue
    ergaenzen, exakt nach dem Muster des bestehenden Wetter-Eintrags
-   (Aufzaehlungsfall, Lesen und Schreiben von `showCalendar`), und
-   AgendaModel wie die uebrigen Modelle starten, stoppen und als
-   EnvironmentObject durchreichen.
+   (neuer Fall `calendar` am Ende von `WidgetToggle`, Titel "Termine",
+   Lesen und Schreiben von `showCalendar`), AgendaModel als
+   EnvironmentObject an `DashboardView` durchreichen und in
+   `applyWidgetServices()` nach dem Muster des Wetter-Blocks starten
+   (`showCalendar` gesetzt) bzw. stoppen.
+10. Lokaler Test ohne Google: nur unter `#if DEBUG` liest AgendaModel bei
+   gesetzter Umgebungsvariable `XENEON_CALENDAR_ICS_FILE` den Feed aus
+   dieser lokalen Datei statt ueber CalendarFeedFetcher; `isConfigured` ist
+   dann nicht noetig, Poll- und Tick-Logik bleiben identisch. Im
+   Release-Build existiert dieser Pfad nicht. Dazu Scripts/sample-calendar.sh
+   (bash, `set -euo pipefail`, SPDX-Kopf wie Scripts/test.sh): schreibt
+   eine ICS-Datei (Pfad als erstes Argument, Default
+   `${TMPDIR}/xeneon-sample.ics`) mit Terminen relativ zur aktuellen Zeit
+   in UTC: in 50 s, 4 min, 12 min, 25 min und 50 min, dazu einer vor 1 min
+   gestartet, ein CANCELLED-Termin in 8 min und ein Ganztagstermin heute.
+   Am Ende gibt es den passenden Startbefehl aus.
 
 Definition of Done:
 - [ ] Menuepunkt schaltet das Panel ohne Neustart ein und aus.
 - [ ] Ohne gueltige Feed-URL laeuft kein Timer und es wird kein Request gebaut.
 - [ ] Der 1-s-Tick laeuft nur, solange mindestens eine Warnung sichtbar ist.
+- [ ] Mit `XENEON_CALENDAR_ICS_FILE` und der Beispieldatei zeigt der Debug-Build das Panel mit Countdown; der Release-Build kennt die Variable nicht.
 - [ ] Neue und bestehende Tests laufen gruen.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-5
-  feature/issue-20-part-4` und `git checkout feature/issue-20-part-5`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-5`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-5 origin/feature/issue-20-part-4` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-5 feature/issue-20-part-4` anlegen (part-4 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
-- DashboardView.swift hat 799 Zeilen: dort nur die beiden beschriebenen
-  Einfuegungen, keine Umbauten, keine Formatierungsaenderungen.
+- DashboardView.swift hat 799 Zeilen: dort nur die beschriebenen
+  Einfuegungen (zwei Farben, EnvironmentObject, Panel-Zeile, erweiterte
+  Bedingung), keine Umbauten, keine Formatierungsaenderungen.
 - Keine Logik in die View - Auswahl und Stufen kommen unveraendert aus
   XeneonEdgeKit.
 - Genau einmal vor dem finalen Commit die CI-Kette: `swift build &&
