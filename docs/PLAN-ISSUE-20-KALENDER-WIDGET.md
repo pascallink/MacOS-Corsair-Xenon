@@ -464,54 +464,93 @@ Dateiebene:
 Aufgaben:
 1. CalendarConfig.swift nach dem Muster von
    Sources/XeneonEdgeKit/Config/AppConfig.swift anlegen: `public struct
-   CalendarConfig: Codable, Equatable` mit `enabled = false`,
+   CalendarConfig: Codable, Equatable, Sendable` mit `enabled = false`,
    `feedURL = ""`, `leadMinutes: Double = 60`, `graceMinutes: Double = 2`,
    `maxReminders = 2`, `pollSeconds: Double = 300`,
-   `showEventTitles = true`, `feedOwnerEmail = ""`.
+   `showEventTitles = true`, `feedOwnerEmail = ""` und `public init()`.
 2. Tolerantes `init(from:)` mit `decodeIfPresent` je Feld und Rueckfall auf
    den Default - exakt wie in AppConfig.swift, damit eine handgeschriebene
-   Datei mit nur einem Schluessel gueltig bleibt.
+   Datei mit nur einem Schluessel gueltig bleibt. Beim Lesen klemmen:
+   `pollSeconds` auf 60...3600, `leadMinutes` auf 5...240, `graceMinutes`
+   auf 0...30, `maxReminders` auf 1...4. `feedURL` getrimmt.
 3. Ablage in `~/Library/Application Support/XeneonEdge/calendar.json`
-   (`AppConfig.directory` wiederverwenden). `load()` gibt bei fehlender oder
-   kaputter Datei Defaults zurueck und schreibt dabei nichts; `save()`
-   schreibt atomar und setzt anschliessend die Dateirechte auf 0600
-   (`FileManager.setAttributes([.posixPermissions: 0o600])`), weil die Datei
-   ein Geheimnis enthaelt.
+   (`AppConfig.directory` wiederverwenden), `public static var fileURL`.
+   `public static func load(from url: URL = fileURL) -> CalendarConfig`
+   und `public func save(to url: URL = fileURL) throws` - der Parameter
+   macht beides ohne Zugriff auf das echte ~/Library testbar.
+   - `load()` gibt bei fehlender oder kaputter Datei Defaults zurueck und
+     schreibt keinen Inhalt. Die NSLog-Zeile bei kaputter Datei nennt nur
+     "calendar.json nicht lesbar", nie `error` - ein DecodingError kann
+     Teile des Inhalts zitieren. Sind an einer vorhandenen Datei Gruppen-
+     oder Weltrechte gesetzt (von Hand angelegt, typisch 0644), setzt
+     `load()` sie auf 0600 und schreibt dazu eine Logzeile ohne Inhalt.
+   - `save()` legt das Verzeichnis an, schreibt eine Temp-Datei im selben
+     Verzeichnis, die schon beim Anlegen 0600 hat
+     (`FileManager.createFile(atPath:contents:attributes:
+     [.posixPermissions: 0o600])`), und benennt sie per POSIX `rename`
+     auf das Ziel um. `Data.write(.atomic)` mit nachgelagertem
+     `setAttributes` reicht nicht: die Datei laege dazwischen mit 0644
+     lesbar herum. Fehler werden geworfen, wie in AppConfig.save().
 4. `isConfigured` liefert nur true, wenn `enabled` gesetzt ist und `feedURL`
-   eine https-URL ist. `pollSeconds` wird beim Lesen auf 60...3600 geklemmt,
-   `leadMinutes` auf 5...240, `maxReminders` auf 1...4.
-5. CalendarFeedFetcher.swift: `public static func redact(_ url: String) ->
-   String` gibt hoechstens Schema und Host zurueck ("https://<host>"), nie
-   Pfad, nie Query. Jede Log- und Fehlermeldung im Modul geht ueber diese
-   Funktion.
-6. `public static func fetch(urlString:etag:lastModified:session:) async ->
-   FeedResult` mit `FeedResult` als Enum `.notModified`,
+   per `URL(string:)` eine URL mit Schema `https` und nicht-leerem Host
+   ist. `public var reminderOptions: ReminderOptions` baut die Optionen fuer
+   `UpcomingReminders.select` aus den Feldern.
+5. CalendarFeedFetcher.swift, `public enum CalendarFeedFetcher`:
+   `public static func redact(_ url: String) -> String` gibt hoechstens
+   Schema und Host zurueck ("https://<host>"), nie Pfad, Query, Fragment,
+   Port-Userinfo. Unparsbare Eingabe oder fehlender Host ergibt die
+   Konstante "<ungueltige URL>", nie einen Teil der Eingabe. Jede Log- und
+   Fehlermeldung im Modul geht ueber diese Funktion; Fehlerobjekte
+   (`URLError`, `error`) werden nie interpoliert - sie tragen die volle
+   URL in `NSErrorFailingURLStringKey`. Geloggt werden hoechstens
+   `redact(url)`, HTTP-Status und `URLError.Code.rawValue`.
+6. `public static func fetch(urlString: String, etag: String?, lastModified: String?, session: URLSession = CalendarFeedFetcher.session) async -> FeedResult`
+   mit `FeedResult` (Equatable, Sendable) als Enum `.notModified`,
    `.success(text: String, etag: String?, lastModified: String?)`,
-   `.failure`. Nur https wird akzeptiert, Timeout 15 s, Header
-   If-None-Match und If-Modified-Since werden gesetzt, wenn die Werte
-   vorliegen. HTTP 304 ergibt `.notModified`, 200 ergibt `.success`, alles
-   andere `.failure` - kein `throw` nach aussen, gleiche Haltung wie
-   CloudUsageFetcher.fetch.
+   `.failure`.
+   - `CalendarFeedFetcher.session` ist eine eigene Session mit
+     `URLSessionConfiguration.ephemeral`, `urlCache = nil` und
+     `requestCachePolicy = .reloadIgnoringLocalCacheData` - die
+     Standard-Session legt Antwort und URL sonst in Cache.db auf der
+     Platte ab.
+   - Nur https wird akzeptiert; bei anderem Schema kein Request,
+     sofort `.failure`. Timeout 15 s. Header If-None-Match und
+     If-Modified-Since werden gesetzt, wenn die Werte vorliegen.
+   - HTTP 304 ergibt `.notModified`, 200 ergibt `.success`, alles andere
+     `.failure`. Ist die finale `response.url` nach Weiterleitungen nicht
+     https, `.failure`. Antworten ueber 20 MB ergeben `.failure`. Text als
+     UTF-8, bei Fehlschlag ISO-Latin-1. ETag und Last-Modified aus den
+     Antwort-Headern uebernehmen. Kein `throw` nach aussen, gleiche
+     Haltung wie CloudUsageFetcher.fetch.
 7. In CalendarFeedTests.swift die Suite `CalendarFeedTests` anlegen, mit je
-   einem Test fuer: `redact` entfernt Pfad und Query vollstaendig; `redact`
-   auf einer unparsbaren Eingabe gibt keinen Teil der Eingabe zurueck; eine
-   http-URL ergibt `isConfigured == false`; Config ohne Schluessel dekodiert
-   auf alle Defaults; Config mit nur einem Schluessel behaelt die uebrigen
-   Defaults; pollSeconds 5 wird zu 60 und 99999 zu 3600; maxReminders 9 wird
-   zu 4. Kein Test geht ins Netz.
+   einem Test fuer: `redact` entfernt Pfad, Query und Userinfo
+   vollstaendig (Google-Form
+   `https://calendar.google.com/calendar/ical/x%40group/private-abc/basic.ics`);
+   `redact` auf unparsbarer Eingabe gibt "<ungueltige URL>"; eine http-URL
+   ergibt `isConfigured == false`; `enabled == false` ergibt false; Config
+   ohne Schluessel dekodiert auf alle Defaults; Config mit nur einem
+   Schluessel behaelt die uebrigen Defaults; pollSeconds 5 wird zu 60 und
+   99999 zu 3600; maxReminders 9 wird zu 4; `save` in ein Temp-Verzeichnis
+   ergibt Rechte 0600 und `load` liest denselben Wert zurueck; `load` auf
+   einer Datei mit 0644 setzt 0600; `fetch` ueber einen URLProtocol-Stub
+   (Muster: BitbucketStubProtocol in BitbucketClientTests.swift) liefert
+   bei 200 `.success` mit ETag, bei 304 `.notModified`, bei 500
+   `.failure`, sendet If-None-Match mit, und bei einer http-URL erreicht
+   den Stub gar kein Request. Kein Test geht ins Netz oder nach ~/Library.
 
 Definition of Done:
 - [ ] Keine Logzeile und keine Fehlermeldung enthaelt Pfad oder Query der Feed-URL.
-- [ ] calendar.json wird mit 0600 geschrieben.
+- [ ] calendar.json liegt zu keinem Zeitpunkt mit mehr als 0600 auf der Platte (ausser von Hand angelegt bis zum ersten load).
+- [ ] Kein Abruf hinterlaesst Antwort oder URL im URL-Cache.
 - [ ] Ohne `enabled` und gueltige https-URL wird kein Request gebaut.
 - [ ] Neue und bestehende Tests laufen gruen.
 
 Constraints:
-- Vor der ersten Aenderung `git fetch origin feature/issue-20-part-4
-  feature/issue-20-part-3` und `git checkout feature/issue-20-part-4`.
+- Vor der ersten Aenderung `git checkout feature/issue-20-part-4`.
   Existiert der Branch noch nicht, mit `git checkout -b
-  feature/issue-20-part-4 origin/feature/issue-20-part-3` anlegen. Kein
-  anderer Branch, Commit lokal - Push nur nach Freigabe durch Pascal.
+  feature/issue-20-part-4 feature/issue-20-part-3` anlegen (part-3 ist
+  bis zur Freigabe nur lokal). Kein anderer Branch, Commit lokal - Push
+  nur nach Freigabe durch Pascal.
 - Deutsch ohne Umlaute in Kommentaren und UI-Texten.
 - Kein Test darf eine echte Netzverbindung aufbauen.
 - Die Feed-URL wird nie in einer Rueckgabe, einem Fehlertext oder einem Log
