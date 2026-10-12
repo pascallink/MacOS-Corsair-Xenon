@@ -524,6 +524,8 @@ final class AgendaModel: ObservableObject {
     private var etag: String?
     private var lastModified: String?
     private var failures = 0
+    /// Testdatei (nur DEBUG) des laufenden Stands, Teil des Vergleichs in start().
+    private var runningSource = ""
     /// Verwirft Ergebnisse alter Abrufe nach stop() oder erneutem start().
     private var generation = 0
 
@@ -541,11 +543,23 @@ final class AgendaModel: ObservableObject {
     }
     #endif
 
-    /// Idempotent: raeumt zuerst alle Timer ab und startet dann neu.
+    /// Idempotent im Sinn von "gleicher Stand, kein Neustart": laeuft das
+    /// Modell bereits und ist die Konfiguration (unter DEBUG samt Testdatei)
+    /// unveraendert, kehrt der Aufruf sofort zurueck - sonst wuerde jedes
+    /// Widget-Umschalten einen Abruf ausloesen und ETag, Fehlerzaehler und
+    /// Anzeige zuruecksetzen. Bei geaenderter Konfiguration oder nicht
+    /// laufendem Modell werden zuerst alle Timer abgeraeumt, dann neu gestartet.
     func start() {
+        let loaded = CalendarConfig.load()
+        var source = ""
+        #if DEBUG
+        source = Self.debugFilePath ?? ""
+        #endif
+        if pollTimer != nil, loaded == config, source == runningSource { return }
+        runningSource = source
         invalidateTimers()
         generation += 1
-        config = CalendarConfig.load()
+        config = loaded
         showEventTitles = config.showEventTitles
         leadMinutes = config.leadMinutes
         events = []
