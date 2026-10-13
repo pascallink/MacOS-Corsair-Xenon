@@ -74,17 +74,13 @@ public enum UpcomingReminders {
         now: Date,
         options: ReminderOptions = .init()
     ) -> (reminders: [CalendarReminder], overflow: Int) {
-        let owner = options.feedOwnerEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let lead = options.leadMinutes * 60
         let earliest = now.addingTimeInterval(-options.graceMinutes * 60)
         let latest = now.addingTimeInterval(lead)
 
         var seen = Set<String>()
         var matching: [CalendarEvent] = []
-        for event in events {
-            if event.isAllDay { continue }
-            if event.status == "CANCELLED" { continue }
-            if !owner.isEmpty, event.declinedBy.contains(owner) { continue }
+        for event in candidates(events, options: options) {
             guard event.start >= earliest, event.start <= latest else { continue }
             guard seen.insert(event.id).inserted else { continue }
             matching.append(event)
@@ -107,5 +103,35 @@ public enum UpcomingReminders {
             )
         }
         return (Array(reminders), matching.count - reminders.count)
+    }
+
+    /// Fruehester Termin hinter dem Vorlauf (`start > now + leadMinutes*60`),
+    /// bei Gleichstand nach Titel, dann uid. Gleiche Filter wie `select`.
+    /// `now` wird immer injiziert.
+    public static func next(
+        events: [CalendarEvent],
+        now: Date,
+        options: ReminderOptions = .init()
+    ) -> CalendarEvent? {
+        let threshold = now.addingTimeInterval(options.leadMinutes * 60)
+        return candidates(events, options: options)
+            .filter { $0.start > threshold }
+            .min {
+                if $0.start != $1.start { return $0.start < $1.start }
+                if $0.title != $1.title { return $0.title < $1.title }
+                return $0.uid < $1.uid
+            }
+    }
+
+    /// Gemeinsame Filter: Ganztag, CANCELLED und vom Feed-Besitzer
+    /// abgelehnte Termine fallen raus.
+    private static func candidates(_ events: [CalendarEvent], options: ReminderOptions) -> [CalendarEvent] {
+        let owner = options.feedOwnerEmail.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return events.filter { event in
+            if event.isAllDay { return false }
+            if event.status == "CANCELLED" { return false }
+            if !owner.isEmpty, event.declinedBy.contains(owner) { return false }
+            return true
+        }
     }
 }

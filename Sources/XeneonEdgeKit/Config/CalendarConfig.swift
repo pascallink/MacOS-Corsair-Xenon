@@ -19,6 +19,11 @@ public struct CalendarConfig: Codable, Equatable, Sendable {
     public var pollSeconds: Double = 300
     public var showEventTitles = true
     public var feedOwnerEmail = ""
+    /// Bis wohin (in Tagen) der naechste Termin gesucht wird, wenn keine
+    /// Warnung ansteht.
+    public var nextHorizonDays: Double = 7
+    /// Ob das Panel ausserhalb des Vorlaufs den naechsten Termin zeigt.
+    public var showNextEvent = true
 
     public init() {}
 
@@ -41,6 +46,9 @@ public struct CalendarConfig: Codable, Equatable, Sendable {
                                  60...3600, d.pollSeconds)
         showEventTitles = try c.decodeIfPresent(Bool.self, forKey: .showEventTitles) ?? d.showEventTitles
         feedOwnerEmail = try c.decodeIfPresent(String.self, forKey: .feedOwnerEmail) ?? d.feedOwnerEmail
+        nextHorizonDays = Self.clamp(try c.decodeIfPresent(Double.self, forKey: .nextHorizonDays),
+                                     1...31, d.nextHorizonDays)
+        showNextEvent = try c.decodeIfPresent(Bool.self, forKey: .showNextEvent) ?? d.showNextEvent
     }
 
     private static func clamp(_ value: Double?, _ range: ClosedRange<Double>, _ fallback: Double) -> Double {

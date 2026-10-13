@@ -113,6 +113,18 @@ private final class CalendarStubProtocol: URLProtocol {
         #expect(try decode(#"{"graceMinutes": 99}"#).graceMinutes == 30)
     }
 
+    @Test func naechsterTerminDefaultsUndKlemmung() throws {
+        let defaults = CalendarConfig()
+        #expect(defaults.nextHorizonDays == 7)
+        #expect(defaults.showNextEvent)
+        #expect(try decode("{}").nextHorizonDays == 7)
+        #expect(try decode("{}").showNextEvent)
+        #expect(try decode(#"{"nextHorizonDays": 0}"#).nextHorizonDays == 1)
+        #expect(try decode(#"{"nextHorizonDays": 99}"#).nextHorizonDays == 31)
+        #expect(try decode(#"{"nextHorizonDays": 14}"#).nextHorizonDays == 14)
+        #expect(try decode(#"{"showNextEvent": false}"#).showNextEvent == false)
+    }
+
     @Test func feedURLWirdGetrimmt() throws {
         #expect(try decode(#"{"feedURL": "  https://a.example/x  "}"#).feedURL == "https://a.example/x")
     }

@@ -10,9 +10,10 @@ import Foundation
 /// Expander, Auswahl, Stufen) liegt komplett in XeneonEdgeKit; hier nur
 /// Timer, Abruf und Veroeffentlichung.
 ///
-/// Zwei Timer: der Poll-Timer holt den Feed (`pollSeconds`), der Tick-Timer
-/// (1 s) laeuft nur, solange mindestens eine Warnung sichtbar ist. Ohne
-/// gueltige Konfiguration laeuft gar kein Timer und es entsteht kein Request.
+/// Drei Timer: der Poll-Timer holt den Feed (`pollSeconds`), der Tick-Timer
+/// (1 s) laeuft nur, solange mindestens eine Warnung sichtbar ist, der
+/// One-Shot-Timer `entryTimer` feuert, wenn der naechste Termin in den
+/// Vorlauf rueckt (dann wird er zur Warnung). Ohne gueltige Konfiguration laeuft gar kein Timer und es entsteht kein Request.
 public final class AgendaModel: ObservableObject {
     @Published public private(set) var reminders: [CalendarReminder] = []
     @Published public private(set) var overflow = 0
@@ -23,10 +24,18 @@ public final class AgendaModel: ObservableObject {
     @Published public private(set) var isConfigured = false
     /// Vorlauf in Minuten, nur fuer den Leertext des Panels.
     @Published public private(set) var leadMinutes: Double = 60
+    /// Naechster Termin hinter dem Vorlauf; nil bei ausgeschaltetem
+    /// `showNextEvent`, ohne Konfiguration oder ohne Termin im Horizont.
+    @Published public private(set) var next: CalendarEvent?
+    /// Horizont der Suche in Tagen, nur fuer den Leertext der Views.
+    @Published public private(set) var nextHorizonDays: Double = 7
+    @Published public private(set) var showNextEvent = true
 
     private var config = CalendarConfig()
     private var pollTimer: Timer?
     private var tickTimer: Timer?
+    private var entryTimer: Timer?
+    private var entryDate: Date?
     private var events: [CalendarEvent] = []
     private var expanded: [CalendarEvent] = []
     private var etag: String?
@@ -72,6 +81,8 @@ public final class AgendaModel: ObservableObject {
         config = loaded
         showEventTitles = config.showEventTitles
         leadMinutes = config.leadMinutes
+        nextHorizonDays = config.nextHorizonDays
+        showNextEvent = config.showNextEvent
         events = []
         expanded = []
         etag = nil
@@ -80,6 +91,7 @@ public final class AgendaModel: ObservableObject {
         isStale = false
         reminders = []
         overflow = 0
+        next = nil
 
         var configured = config.isConfigured
         #if DEBUG
@@ -104,6 +116,7 @@ public final class AgendaModel: ObservableObject {
         failures = 0
         reminders = []
         overflow = 0
+        next = nil
         isStale = false
         isConfigured = false
     }
@@ -113,6 +126,7 @@ public final class AgendaModel: ObservableObject {
         pollTimer = nil
         tickTimer?.invalidate()
         tickTimer = nil
+        cancelEntryTimer()
     }
 
     private func poll() {
@@ -175,7 +189,8 @@ public final class AgendaModel: ObservableObject {
         // Vorlauf wandern, im Bestand sind.
         let now = Date()
         let from = now.addingTimeInterval(-config.graceMinutes * 60)
-        let reach = config.leadMinutes * 60 + max(15 * 60, config.pollSeconds)
+        var reach = config.leadMinutes * 60 + max(15 * 60, config.pollSeconds)
+        if config.showNextEvent { reach = max(reach, config.nextHorizonDays * 86400) }
         expanded = RecurrenceExpander.expand(events, in: from..<now.addingTimeInterval(reach))
         refreshSelection()
     }
@@ -186,6 +201,43 @@ public final class AgendaModel: ObservableObject {
         reminders = selection.reminders
         overflow = selection.overflow
         updateTick()
+        updateNext(now: Date())
+    }
+
+    /// Bestimmt `next` neu (nur Zuweisung bei Aenderung) und plant den
+    /// Eintritts-Timer auf `next.start - Vorlauf`.
+    private func updateNext(now: Date) {
+        let found = config.showNextEvent
+            ? UpcomingReminders.next(events: expanded, now: now, options: config.reminderOptions)
+            : nil
+        if found != next { next = found }
+        guard let found else {
+            cancelEntryTimer()
+            return
+        }
+        let entry = found.start.addingTimeInterval(-config.leadMinutes * 60)
+        if entry <= now {
+            // Schon im Vorlauf: sofort neu auswaehlen statt Timer.
+            cancelEntryTimer()
+            refreshSelection()
+            return
+        }
+        if entryDate == entry, entryTimer != nil { return }
+        cancelEntryTimer()
+        entryDate = entry
+        let timer = Timer(fire: entry, interval: 0, repeats: false) { [weak self] _ in
+            self?.entryTimer = nil
+            self?.entryDate = nil
+            self?.refreshSelection()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        entryTimer = timer
+    }
+
+    private func cancelEntryTimer() {
+        entryTimer?.invalidate()
+        entryTimer = nil
+        entryDate = nil
     }
 
     /// Der Tick laeuft nur, solange mindestens eine Warnung sichtbar ist.
