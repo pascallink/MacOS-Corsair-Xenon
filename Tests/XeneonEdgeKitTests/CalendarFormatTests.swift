@@ -46,4 +46,33 @@ import Testing
         #expect(ReminderFormat.statusTitle(Self.reminder(remaining: 30), timeZone: Self.zone) == "12:00 - jetzt")
         #expect(ReminderFormat.statusTitle(Self.reminder(remaining: -10), timeZone: Self.zone) == "12:00 - laeuft")
     }
+
+    // MARK: nextLabel / relative
+
+    /// Mo 2026-10-12 12:00 Berlin als Bezugspunkt (`start`).
+    private static func label(daysAhead: Int, hour: Int = 9) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = zone
+        let day = cal.date(byAdding: .day, value: daysAhead, to: cal.startOfDay(for: start))!
+        let date = cal.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
+        return ReminderFormat.nextLabel(date, now: start, timeZone: zone)
+    }
+
+    @Test func nextLabelTodayTomorrowWeekdayDate() {
+        #expect(Self.label(daysAhead: 0, hour: 15) == "15:00")
+        #expect(Self.label(daysAhead: 1) == "morgen 09:00")
+        #expect(Self.label(daysAhead: 3) == "Do 09:00")
+        #expect(Self.label(daysAhead: 6) == "So 09:00")
+        #expect(Self.label(daysAhead: 7) == "19.10. 09:00")
+        #expect(Self.label(daysAhead: 10) == "22.10. 09:00")
+    }
+
+    @Test func relativeFormats() {
+        #expect(ReminderFormat.relative(59) == "in 1 min")
+        #expect(ReminderFormat.relative(30 * 60) == "in 30 min")
+        #expect(ReminderFormat.relative(2 * 3600) == "in 2 h")
+        #expect(ReminderFormat.relative(2 * 3600 + 15 * 60) == "in 2 h 15 min")
+        #expect(ReminderFormat.relative(86400) == "in 1 Tag")
+        #expect(ReminderFormat.relative(3 * 86400 + 5000) == "in 3 Tagen")
+    }
 }

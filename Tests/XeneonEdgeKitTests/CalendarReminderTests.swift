@@ -124,4 +124,46 @@ import Testing
         #expect(out.count == 3)
         #expect(out.allSatisfy { $0.declinedBy == ["me@x.de"] })
     }
+
+    // MARK: next
+
+    private static func next(_ events: [CalendarEvent], _ options: ReminderOptions = .init()) -> CalendarEvent? {
+        UpcomingReminders.next(events: events, now: now, options: options)
+    }
+
+    @Test func nextPicksEarliestBeyondLead() {
+        let result = Self.next([
+            Self.event("late", in: 5 * 3600),
+            Self.event("early", in: 2 * 3600),
+            Self.event("inLead", in: 30 * 60),
+        ])
+        #expect(result?.uid == "early")
+    }
+
+    @Test func nextIgnoresAllDayCancelledAndDeclined() {
+        let options = ReminderOptions(feedOwnerEmail: "me@x.de")
+        let result = Self.next([
+            Self.event("allday", in: 2 * 3600, allDay: true),
+            Self.event("cancelled", in: 2 * 3600, status: "CANCELLED"),
+            Self.event("declined", in: 2 * 3600, declinedBy: ["me@x.de"]),
+            Self.event("ok", in: 4 * 3600),
+        ], options)
+        #expect(result?.uid == "ok")
+    }
+
+    @Test func nextIsNilWithoutMatch() {
+        #expect(Self.next([]) == nil)
+        #expect(Self.next([Self.event("a", in: 3600)]) == nil)
+        #expect(Self.next([Self.event("a", in: 30 * 60)]) == nil)
+        #expect(Self.next([Self.event("a", in: 7200, allDay: true)]) == nil)
+    }
+
+    @Test func nextBreaksTiesByTitleThenUid() {
+        let result = Self.next([
+            Self.event("2", in: 7200, title: "B"),
+            Self.event("3", in: 7200, title: "A"),
+            Self.event("1", in: 7200, title: "A"),
+        ])
+        #expect(result?.uid == "1")
+    }
 }
