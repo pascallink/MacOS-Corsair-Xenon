@@ -46,10 +46,10 @@ struct AgendaPanel: View {
 
     var body: some View {
         Panel(title: "Termine", systemImage: "calendar") {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 if !agenda.isConfigured {
                     Text("kein Kalender-Feed eingerichtet")
-                        .font(.system(size: 13))
+                        .font(.system(size: 18))
                         .foregroundColor(EdgeTheme.textSecondary)
                 } else if !agenda.reminders.isEmpty {
                     ForEach(agenda.reminders) { reminder in
@@ -57,19 +57,19 @@ struct AgendaPanel: View {
                     }
                     if agenda.overflow > 0 {
                         Text("+\(agenda.overflow) weitere")
-                            .font(.system(size: 12))
+                            .font(.system(size: 15))
                             .foregroundColor(EdgeTheme.textSecondary)
                     }
                 } else if let next = agenda.next {
                     NextEventView(event: next, showTitle: agenda.showEventTitles)
                 } else {
                     Text(emptyText)
-                        .font(.system(size: 13))
+                        .font(.system(size: 18))
                         .foregroundColor(EdgeTheme.textSecondary)
                 }
                 if agenda.isStale {
                     Text("Stand veraltet")
-                        .font(.system(size: 11))
+                        .font(.system(size: 14))
                         .foregroundColor(EdgeTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
@@ -103,24 +103,24 @@ private struct NextEventView: View {
     var body: some View {
         TimelineView(.everyMinute) { context in
             let now = context.date
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Naechster Termin")
-                    .font(.system(size: 12))
+                    .font(.system(size: 15))
                     .foregroundColor(EdgeTheme.textSecondary)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(ReminderFormat.nextLabel(event.start, now: now))
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(EdgeTheme.textSecondary)
                     if showTitle {
                         Text(event.title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 20, weight: .medium))
                             .foregroundColor(EdgeTheme.textPrimary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Text(ReminderFormat.relative(event.start.timeIntervalSince(now)))
-                        .font(.system(size: 13))
+                        .font(.system(size: 18))
                         .foregroundColor(EdgeTheme.textSecondary)
                 }
             }
@@ -134,21 +134,21 @@ private struct ReminderRow: View {
 
     var body: some View {
         let color = AgendaPanel.color(for: reminder.stage)
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(ReminderFormat.clock(reminder.event.start))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textSecondary)
                 if showTitle {
                     Text(reminder.event.title)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundColor(EdgeTheme.textPrimary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 Text(ReminderFormat.countdown(reminder.remaining))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(color)
             }
@@ -160,7 +160,7 @@ private struct ReminderRow: View {
                         .frame(width: max(0, min(reminder.progress, 1)) * geometry.size.width)
                 }
             }
-            .frame(height: 5)
+            .frame(height: 7)
         }
         .modifier(PulseModifier(active: reminder.stage == .imminent))
     }
