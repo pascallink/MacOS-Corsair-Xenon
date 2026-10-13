@@ -28,9 +28,11 @@ struct WidgetConfig: Codable, Equatable {
     var corner: String = "bottomRight"
     /// Margin from the display edges in points.
     var margin: Double = 24
-    /// Widget size in points. The default leaves room for the chat
-    /// overview; without it (`showSessions: false`) about 250 is enough.
+    /// Widget width in points.
     var width: Double = 560
+    /// Minimum height in points. The window grows to the measured content
+    /// height when that is taller, so nothing is ever clipped; without the
+    /// chat overview (`showSessions: false`) about 250 is enough.
     var height: Double = 320
     /// Count cache reads towards the displayed token number. Plan limits
     /// weigh cache reads barely at all, so the default leaves them out.

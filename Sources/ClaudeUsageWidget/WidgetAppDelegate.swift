@@ -18,8 +18,10 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
     private var agendaCancellables = Set<AnyCancellable>()
     /// Abstand zwischen Karte und Nutzungsanzeige (Spacing der WidgetView).
     private static let cardGap: CGFloat = 12
-    /// Zusatzhoehe des Fensters durch die Karte; 0 ohne sichtbare Karte.
+    /// Zusatzhoehe der Mindesthoehe durch die Karte; 0 ohne sichtbare Karte.
     private var cardExtraHeight: CGFloat = 0
+    /// Von der WidgetView gemessene Inhaltshoehe; 0 bis zur ersten Messung.
+    private var contentHeight: CGFloat = 0
     private var statusTitle = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -71,7 +73,15 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         // Above the XeneonEdge dashboard window (mainMenu+1), so both can run.
         window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
-        window.contentView = NSHostingView(rootView: WidgetView(model: model, agenda: agenda))
+        let hostingView = NSHostingView(rootView: WidgetView(model: model, agenda: agenda) { [weak self] height in
+            // Gemeldet wird mitten im Layout-Durchlauf; das Fenster erst
+            // einen Runloop-Hop spaeter umsetzen.
+            DispatchQueue.main.async { self?.contentHeightChanged(height) }
+        })
+        // Die Groesse bestimmt allein position(); sonst zoege AppKit das
+        // Fenster ueber Min-/Max-Constraints am Ursprung (unten links) nach.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
         window.orderFrontRegardless()
     }
 
@@ -80,7 +90,7 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         let screen = EdgeDisplay.find()?.screen ?? NSScreen.main
         guard let frame = screen?.frame else { return }
         let margin = CGFloat(config.margin)
-        let size = NSSize(width: config.width, height: CGFloat(config.height) + cardExtraHeight)
+        let size = windowSize()
 
         let origin: NSPoint
         switch config.corner {
@@ -97,6 +107,21 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         }
         window.setFrame(NSRect(origin: origin, size: size), display: true)
         window.orderFrontRegardless()
+    }
+
+    /// `height` aus der Config (plus Karte) ist nur die Mindesthoehe; reicht
+    /// sie nicht, waechst das Fenster auf die gemessene Inhaltshoehe.
+    private func windowSize() -> NSSize {
+        let config = model.config
+        let minimum = CGFloat(config.height) + cardExtraHeight
+        return NSSize(width: config.width, height: max(minimum, contentHeight.rounded(.up)))
+    }
+
+    private func contentHeightChanged(_ height: CGFloat) {
+        // Nur echte Aenderungen: der Countdown aktualisiert jede Sekunde.
+        guard abs(height - contentHeight) >= 0.5 else { return }
+        contentHeight = height
+        position() // verankert die konfigurierte Ecke
     }
 
     // MARK: Agenda
@@ -194,8 +219,7 @@ final class WidgetAppDelegate: NSObject, NSApplicationDelegate {
         model.reloadConfig()
         if model.config.showCalendar { agenda.start() } else { agenda.stop() }
         cardExtraHeight = Self.cardHeight(config: model.config, agenda: agenda)
-        window.setContentSize(NSSize(width: model.config.width,
-                                     height: CGFloat(model.config.height) + cardExtraHeight))
+        // Eine neue Breite loest eine neue Messung aus, die erneut positioniert.
         position()
         updateStatusTitle()
     }

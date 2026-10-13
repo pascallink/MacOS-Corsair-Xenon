@@ -19,11 +19,48 @@ enum WidgetTheme {
     static let textSecondary = Color.white.opacity(0.55)
 }
 
+/// Misst die ideale Hoehe des Inhalts bei der angebotenen Breite und meldet
+/// sie, legt ihn aber auf die volle angebotene Hoehe aus: ist das Fenster
+/// hoeher als noetig (Mindesthoehe), fuellen die Spacer wie gehabt.
+private struct ContentHeightLayout: Layout {
+    var onIdealHeight: (CGFloat) -> Void
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = proposal.width ?? content.sizeThatFits(.unspecified).width
+        let ideal = content.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        onIdealHeight(ideal)
+        return CGSize(width: width, height: max(ideal, proposal.height ?? ideal))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(bounds.size))
+    }
+}
+
 struct WidgetView: View {
     @ObservedObject var model: UsageViewModel
     @ObservedObject var agenda: AgendaModel
+    /// Meldet die gemessene Inhaltshoehe; WidgetAppDelegate leitet daraus
+    /// die Fensterhoehe ab.
+    var onContentHeight: (CGFloat) -> Void = { _ in }
 
     var body: some View {
+        ContentHeightLayout(onIdealHeight: onContentHeight) {
+            content.padding(18)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(WidgetTheme.background)
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(WidgetTheme.border))
+        )
+        .preferredColorScheme(.dark)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Ohne Warnung entsteht weder Karte noch Abstand. Die Bedingung
             // muss zu WidgetAppDelegate.cardHeight(config:agenda:) passen.
@@ -42,14 +79,6 @@ struct WidgetView: View {
                 ChatOverview(model: model)
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(WidgetTheme.background)
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(WidgetTheme.border))
-        )
-        .preferredColorScheme(.dark)
     }
 
     private var singleProfile: some View {
@@ -213,7 +242,11 @@ struct WidgetView: View {
             Text(row.title)
                 .font(.system(size: 11))
                 .foregroundColor(WidgetTheme.textSecondary)
-                .frame(width: 34, alignment: .leading)
+                // Nie umbrechen ("Woch e"); die Mindestbreite haelt die
+                // Balken der drei Zeilen buendig.
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 40, alignment: .leading)
             if let fraction = row.fraction {
                 bar(fraction: fraction, color: rowColor(fraction))
             } else {
@@ -308,15 +341,22 @@ struct WidgetView: View {
                 Text(title)
                     .font(.system(size: 11))
                     .foregroundColor(WidgetTheme.textSecondary)
+                // Einzeilig: die Fensterhoehe folgt dem Inhalt, ein Umbruch
+                // wuerde das Widget sonst nur hoeher statt lesbarer machen.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(value)
                         .font(.system(size: 19, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(WidgetTheme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1) // vor dem Detail kuerzen
                     if let detail {
                         Text(detail)
                             .font(.system(size: 12))
                             .foregroundColor(WidgetTheme.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
             }

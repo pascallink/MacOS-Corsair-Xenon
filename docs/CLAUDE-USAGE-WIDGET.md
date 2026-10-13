@@ -129,6 +129,16 @@ Menüleiste „Konfiguration neu laden“ wählen):
   trotzdem da. Die drei Werte werden unabhängig kalibriert — das
   Wochenlimit ist kein Vielfaches des 5-h-Limits.
 - **`corner`** — `topLeft`, `topRight`, `bottomLeft`, `bottomRight`, `center`.
+  Die gewählte Ecke bleibt verankert, wenn das Fenster wächst oder
+  schrumpft (bei den `bottom…`-Ecken wächst es nach oben).
+- **`width`** — feste Breite in Punkt. Die Höhe des Inhalts ergibt sich aus
+  dieser Breite; ein schmaleres Widget wird also eher höher.
+- **`height`** — nur noch die **Mindesthöhe**. Das Widget misst seinen
+  Inhalt und wird so hoch wie nötig, damit nichts abgeschnitten wird
+  (z. B. Frage-Box plus drei Chatzeilen bei `"sessionRows": 3`). Ist der
+  Inhalt niedriger, bleibt das Fenster `height` hoch und der Inhalt füllt
+  es wie gewohnt. Eine sichtbare Terminkarte hebt die Mindesthöhe um ihre
+  eigene Höhe an.
 - **`includeCacheReads`** — Cache-Reads mitzählen (Standard: aus, da sie
   bei den Limits kaum ins Gewicht fallen).
 - **`cloudGistID`** / **`cloudPollSeconds`** — siehe Abschnitt Cloud-Relay.
@@ -139,7 +149,7 @@ Menüleiste „Konfiguration neu laden“ wählen):
 - **`showSessions`**, **`showLastQuestion`**, **`sessionRows`**,
   **`sessionActiveSeconds`**, **`sessionOpenHours`** — Chat-Übersicht, siehe
   Abschnitt „Chat-Übersicht". Ohne sie (`"showSessions": false`) genügt
-  wieder eine `height` von etwa 250.
+  wieder eine `height` von etwa 250 — größere Werte lassen nur Leerraum.
 
 ## Chat-Übersicht: parallele Claude-Code-Sessions im Blick
 
