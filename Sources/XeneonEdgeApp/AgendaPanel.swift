@@ -32,6 +32,12 @@ struct AgendaPanel: View {
     }
 
     private var emptyText: String {
+        if agenda.showNextEvent {
+            let days = Int(agenda.nextHorizonDays.rounded())
+            return days <= 1
+                ? "keine Termine bis morgen"
+                : "keine Termine in den naechsten \(days) Tagen"
+        }
         let lead = Int(agenda.leadMinutes.rounded())
         return lead == 60
             ? "keine Termine in der naechsten Stunde"
@@ -45,11 +51,7 @@ struct AgendaPanel: View {
                     Text("kein Kalender-Feed eingerichtet")
                         .font(.system(size: 13))
                         .foregroundColor(EdgeTheme.textSecondary)
-                } else if agenda.reminders.isEmpty {
-                    Text(emptyText)
-                        .font(.system(size: 13))
-                        .foregroundColor(EdgeTheme.textSecondary)
-                } else {
+                } else if !agenda.reminders.isEmpty {
                     ForEach(agenda.reminders) { reminder in
                         ReminderRow(reminder: reminder, showTitle: agenda.showEventTitles)
                     }
@@ -58,6 +60,12 @@ struct AgendaPanel: View {
                             .font(.system(size: 12))
                             .foregroundColor(EdgeTheme.textSecondary)
                     }
+                } else if let next = agenda.next {
+                    NextEventView(event: next, showTitle: agenda.showEventTitles)
+                } else {
+                    Text(emptyText)
+                        .font(.system(size: 13))
+                        .foregroundColor(EdgeTheme.textSecondary)
                 }
                 if agenda.isStale {
                     Text("Stand veraltet")
@@ -84,6 +92,40 @@ struct AgendaPanel: View {
     }
 
     private func rank(_ stage: ReminderStage) -> Int { Self.rank(stage) }
+}
+
+/// Ruhige Anzeige des naechsten Termins ausserhalb des Vorlaufs: kein Balken,
+/// keine Stufenfarbe, kein Puls. Die Minutentaktung kommt aus der TimelineView.
+private struct NextEventView: View {
+    let event: CalendarEvent
+    let showTitle: Bool
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let now = context.date
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Naechster Termin")
+                    .font(.system(size: 12))
+                    .foregroundColor(EdgeTheme.textSecondary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ReminderFormat.nextLabel(event.start, now: now))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(EdgeTheme.textSecondary)
+                    if showTitle {
+                        Text(event.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(EdgeTheme.textPrimary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Text(ReminderFormat.relative(event.start.timeIntervalSince(now)))
+                        .font(.system(size: 13))
+                        .foregroundColor(EdgeTheme.textSecondary)
+                }
+            }
+        }
+    }
 }
 
 private struct ReminderRow: View {
