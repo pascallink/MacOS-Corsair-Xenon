@@ -12,6 +12,9 @@ enum BitbucketCheck {
     /// Hoechstens so viele Pull Requests je Rolle werden einzeln aufgelistet.
     private static let listLimit = 10
 
+    /// Freigabeschwelle, die fuer "Merge-bereit" angenommen wird.
+    private static let assumedApprovals = 1
+
     /// Fuehrt die Pruefung aus und beendet den Prozess mit Exitcode 1, wenn
     /// Eingaben, Token oder Abruf scheitern. Alle Eingaben kommen aus der
     /// Umgebung bzw. der Keychain, nichts ist im Quelltext hinterlegt.
@@ -118,13 +121,13 @@ enum BitbucketCheck {
 
         let overview = BitbucketOverview.build(author: author, reviewer: reviewer,
                                                patterns: patterns, patternLabels: labels,
-                                               currentUser: user, requiredApprovals: 1)
+                                               currentUser: user, requiredApprovals: Self.assumedApprovals)
         print("Kennzahlen fuer \(user):")
         for group in overview.groups {
             print("  \(group.pattern)")
             print("    Meine PR      : \(countText(group.mine))")
             print("    Review        : \(countText(group.toReview))")
-            print("    Merge-bereit  : \(group.readyToMerge)")
+            print("    Merge-bereit  : \(group.readyToMerge) (bei \(Self.assumedApprovals) Freigabe)")
         }
     }
 
