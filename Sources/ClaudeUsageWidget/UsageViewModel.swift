@@ -44,6 +44,10 @@ final class UsageViewModel: ObservableObject {
     private var timer: Timer?
     private var cloudTimer: Timer?
     private var cloudEntries: [UUID: [ClaudeUsageEntry]] = [:]
+    /// Chats reported by the relay, per profile — the same gist fetch that
+    /// brings the token counts also brings the state of sessions running
+    /// elsewhere (see CloudUsageFetcher.fetchRelay).
+    private var cloudSessions: [UUID: [ClaudeSessionSummary]] = [:]
     private var cloudSources: [(id: UUID, gistID: String)] = []
 
     /// Nur aktive Profile - ein deaktiviertes Konto wird weder gelesen noch
@@ -136,15 +140,19 @@ final class UsageViewModel: ObservableObject {
         guard !sources.isEmpty else { return }
         Task { [weak self] in
             for source in sources {
-                let entries = await CloudUsageFetcher.fetch(gistID: source.gistID)
+                let payload = await CloudUsageFetcher.fetchRelay(gistID: source.gistID)
                 await MainActor.run {
                     guard let self,
                           self.cloudSources.contains(where: {
                               $0.id == source.id && $0.gistID == source.gistID
                           })
                     else { return }
-                    self.cloudEntries[source.id] = entries
-                    if entries.isEmpty {
+                    self.cloudEntries[source.id] = payload.entries
+                    self.cloudSessions[source.id] = payload.sessions
+                    // Nur die Tokenzahlen entscheiden ueber das
+                    // Cloud-Abzeichen an der Nutzungsanzeige: ein reiner
+                    // Zustandseintrag faerbt dort keine Zahl ein.
+                    if payload.entries.isEmpty {
                         self.cloudProfileIDs.remove(source.id)
                     } else {
                         self.cloudProfileIDs.insert(source.id)
@@ -157,6 +165,7 @@ final class UsageViewModel: ObservableObject {
 
     func refresh() {
         let cloud = cloudEntries
+        let cloudChats = cloudSessions
         // config.claudeProfiles selbst (nicht activeProfiles) entscheidet,
         // ob ueberhaupt Profile konfiguriert sind: leer heisst
         // Auto-Erkennung eines Profils, wie bisher. Sind Profile
@@ -181,6 +190,8 @@ final class UsageViewModel: ObservableObject {
                 // erkennen, unveraendertes Verhalten von vorher.
                 sessions = wantsSessions
                     ? self.sessionReader.snapshot(for: [], options: sessionOptions)
+                        .merging(remote: cloudChats[Self.autoProfileID] ?? [],
+                                 options: sessionOptions)
                     : ClaudeSessionsSnapshot()
                 let snap = self.reader.snapshot(
                     additionalEntries: cloud[Self.autoProfileID] ?? [])
@@ -194,8 +205,19 @@ final class UsageViewModel: ObservableObject {
                 sessions = ClaudeSessionsSnapshot()
                 usages = []
             } else {
+                // Nur aktive Profile: die Chats eines abgeschalteten
+                // Profils gehoeren genauso wenig in die Uebersicht wie
+                // seine Tokenzahlen, auch wenn sein Gist sie noch meldet.
+                let remote = profiles.flatMap { profile in
+                    (cloudChats[profile.id] ?? []).map { chat -> ClaudeSessionSummary in
+                        var tagged = chat
+                        tagged.profileName = profile.name
+                        return tagged
+                    }
+                }
                 sessions = wantsSessions
                     ? self.sessionReader.snapshot(for: profiles, options: sessionOptions)
+                        .merging(remote: remote, options: sessionOptions)
                     : ClaudeSessionsSnapshot()
                 usages = self.reader.snapshots(for: profiles, additionalEntries: cloud)
             }

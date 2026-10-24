@@ -91,6 +91,11 @@ struct ChatOverview: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(WidgetTheme.textPrimary)
                         .lineLimit(1)
+                    if session.isRemote {
+                        Image(systemName: "icloud")
+                            .font(.system(size: 9))
+                            .foregroundColor(WidgetTheme.textSecondary)
+                    }
                     Text("vor \(SessionFormat.age(session.age(at: snapshot.lastUpdated)))")
                         .font(.system(size: 10))
                         .foregroundColor(WidgetTheme.textSecondary)
@@ -123,6 +128,11 @@ struct ChatOverview: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(WidgetTheme.textPrimary)
                 .lineLimit(1)
+            if session.isRemote {
+                Image(systemName: "icloud")
+                    .font(.system(size: 9))
+                    .foregroundColor(WidgetTheme.textSecondary)
+            }
             if !session.profileName.isEmpty {
                 Text(session.profileName)
                     .font(.system(size: 9))
@@ -162,6 +172,8 @@ struct ChatOverview: View {
                 parts.append(branch)
             } else if let prompt = session.lastPrompt {
                 parts.append(SessionFormat.oneLine(prompt, limit: 50))
+            } else if session.isRemote {
+                parts.append("remote")
             }
         }
         return parts.joined(separator: " · ")
