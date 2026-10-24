@@ -1,10 +1,20 @@
 # Ausfuehrungsplan Issue #20 - Terminwarnung aus dem Google Kalender
 
+> **Archiviert am 2026-10-24 - umgesetzt und gemergt.** Issue #20 ist
+> geschlossen, alle sieben Sub-Tasks sind in `develop` (PR #34 bis #40,
+> gemergt am 2026-10-12), dazu die Nachtraege PR #43 und #44. Dieses
+> Dokument ist Historie: es beschreibt den geplanten Zustand von 2026-09-19,
+> nicht den aktuellen Code. Wie das Feature heute funktioniert und
+> eingerichtet wird, steht in
+> [`docs/GOOGLE-KALENDER-WIDGET.md`](../GOOGLE-KALENDER-WIDGET.md); die
+> Zusage zur Feed-URL in der Root-`CLAUDE.md`. Fuer neue Arbeit nicht mehr
+> hier nachschlagen, sondern im Code.
+
 Begleitdokument zu
 [Issue #20](https://github.com/pascallink/MacOS-Corsair-Xenon/issues/20).
 Das Issue traegt Kontext, Entscheidungen und Abnahmekriterien; hier stehen
 die sieben Sub-Tasks als **einsatzbereite Stufe-0-Auftraege** nach der
-Vorlage in [`.github/PROMPTS.md`](../.github/PROMPTS.md).
+Vorlage in [`.github/PROMPTS.md`](../../.github/PROMPTS.md).
 
 Jeder Block ist selbsttragend: das lokale Modell wie der `umsetzer` starten
 kalt und sehen nur diesen Text, nicht den Rest dieser Datei. Was nicht im
@@ -950,7 +960,7 @@ Constraints:
 ## Abschluss jeder Session
 
 Jeder Sub-Task endet mit dem Review-Prompt fuer Opus nach der Form in
-[`.github/PLAN.template.md`](../.github/PLAN.template.md): Aenderungen,
+[`.github/PLAN.template.md`](../../.github/PLAN.template.md): Aenderungen,
 Designentscheidungen, bedachte Edge Cases, drei bis vier konkrete
 Pruefpunkte mit Datei und Funktion, bekannte Luecken. Ein einzelner
 Codeblock, hoechstens 40 Zeilen, kein Selbstlob.
