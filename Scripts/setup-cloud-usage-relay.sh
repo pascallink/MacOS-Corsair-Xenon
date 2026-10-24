@@ -9,8 +9,11 @@
 #
 # A "secret" gist is unlisted, not access-controlled: anyone who learns the
 # ID can read it. That's an acceptable tradeoff here ONLY because the hook
-# never puts anything but {timestamp, model, token counts} in it — never
-# prompt or response text. See docs/CLAUDE-USAGE-WIDGET.md before using this.
+# never puts anything but {timestamp, model, token counts} and the chat
+# state (working / waiting / idle, with the folder name, branch and model)
+# in it — never prompt or response text, unless that environment explicitly
+# sets XENEON_RELAY_QUESTION_TEXT=1 to relay open questions.
+# See docs/CLAUDE-USAGE-WIDGET.md before using this.
 set -euo pipefail
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -44,9 +47,13 @@ echo "   Umgebungsvariablen setzen (schreibt, braucht ein Token):"
 echo "     XENEON_USAGE_GIST_ID=${GIST_ID}"
 echo "     XENEON_USAGE_GIST_TOKEN=<classic GitHub PAT mit Scope 'gist'>"
 echo "   PAT erstellen: https://github.com/settings/tokens (classic, nur 'gist')"
+echo "   Optional: XENEON_RELAY_LABEL=<Anzeigename>, XENEON_RELAY_STATE=0"
+echo "   (kein Chat-Zustand), XENEON_RELAY_QUESTION_TEXT=1 (offene Frage"
+echo "   im Klartext ins Gist - Standard aus)"
 echo
 echo "3) Dieses Repo (oder jedes andere, dessen Remote-Sessions du tracken"
-echo "   willst) braucht .claude/settings.json mit dem Stop-Hook — liegt"
+echo "   willst) braucht .claude/settings.json mit Stop- und"
+echo "   UserPromptSubmit-Hook — liegt"
 echo "   hier bereits unter .claude/settings.json + .claude/hooks/."
 echo
 echo "Danach: Menüleiste \"Konfiguration neu laden\" wählen."

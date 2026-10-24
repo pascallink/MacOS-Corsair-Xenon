@@ -14,7 +14,7 @@ Kosten (Fenster + heute) · In/Out/Cache-Tokens · Modell-Badge · Plan-Badge
 | **Token-Verbrauch je Limitfenster** (5 h, Tag, Woche) + verbleibende Zeit bis zum jeweiligen Reset | `~/.claude/projects/**/*.jsonl` — jede Assistant-Antwort enthält dort ihre Token-Zählung; der 5-h-Block wird wie bei den Claude-Plänen gruppiert (an der vollen Stunde der ersten Nachricht verankert, wie beim ccusage-Community-Tool), der Tag läuft von lokaler Mitternacht zu lokaler Mitternacht, die Woche rollt über die letzten 7×24 Stunden (siehe „Die drei Limitfenster") |
 | **Geschätzte Kosten** (aktuelles Fenster + heute) | Tokenzahlen × Preistabelle (Opus 5: $5/$25, Sonnet: $3/$15, Haiku 4.5: $1/$5, Fable 5: $10/$50 pro Mio. Tokens; Cache-Write ≈ 1,25×, Cache-Read ≈ 0,1× Input). Bei Abo-Plänen sind das *Gegenwerte*, keine echte Rechnung |
 | **Modus/Modell** (Opus / Sonnet / Haiku / Fable) | Modell-ID der letzten Assistant-Antwort |
-| **Offene Chats** (aktiv / mit Frage / offen-inaktiv) + zuletzt offene Frage | `~/.claude/projects/**/*.jsonl` — aus dem Ende jedes Transkripts wird abgeleitet, ob Claude noch arbeitet, auf eine Antwort wartet oder der Chat nur offen herumliegt (siehe „Chat-Übersicht") |
+| **Offene Chats** (aktiv / mit Frage / offen-inaktiv) + zuletzt offene Frage | `~/.claude/projects/**/*.jsonl` — aus dem Ende jedes Transkripts wird abgeleitet, ob Claude noch arbeitet, auf eine Antwort wartet oder der Chat nur offen herumliegt (siehe „Chat-Übersicht"); Remote-Sessions kommen über den Cloud-Relay dazu |
 | **Plan** (Pro/Max…) | `~/.claude/.credentials.json` — es wird **ausschließlich** das Feld `subscriptionType` gelesen; die OAuth-Tokens in der Datei werden nie angefasst, geloggt oder übertragen |
 
 **Datenschutz:** Standardmäßig läuft alles lokal. Das Widget macht keinerlei
@@ -182,7 +182,8 @@ Fragen zuerst, dann arbeitende, dann liegengebliebene Chats.
 
 **Datenquelle:** dieselben lokalen Transkripte wie bei den Tokenzahlen
 (`~/.claude/projects/**/*.jsonl`, bei mehreren Profilen zusätzlich deren
-Verzeichnisse). Gelesen wird nur das **Ende** jeder Datei — der Zustand
+Verzeichnisse) — plus, falls eingerichtet, die Chats aus dem Cloud-Relay
+(Wolken-Symbol, siehe „Chat-Zustand aus der Cloud"). Gelesen wird nur das **Ende** jeder Datei — der Zustand
 eines Chats steht in seinen letzten Zügen, und Transkripte werden schnell
 mehrere Megabyte groß. Es geht weiterhin nichts ins Netz.
 
@@ -303,10 +304,18 @@ Läuft eine Claude-Code-Session in einer entfernten/Cloud-Umgebung (z. B.
 Claude Code on the web), liegt ihr Transkript auf einem anderen Rechner —
 `~/.claude/projects` auf deinem Mac sieht sie nie, egal wie lange man
 wartet. Der Cloud-Relay schließt diese Lücke: Ein Claude-Code-**Hook**
-läuft in der Remote-Session selbst, extrahiert **ausschließlich**
-Zeitstempel, Modell-ID und Tokenzahlen (**nie** Prompt- oder Antworttext)
-und veröffentlicht sie in einem GitHub-Gist. Mac und Widget lesen dieses
-Gist zusätzlich zu den lokalen Logs mit.
+läuft in der Remote-Session selbst und veröffentlicht zwei Dinge in einem
+GitHub-Gist, die Mac und Widget zusätzlich zu den lokalen Logs lesen:
+
+| Gist-Datei | Inhalt | Wofür |
+|---|---|---|
+| `session-<id>.jsonl` | Zeitstempel, Modell-ID, Tokenzahlen | Tokenstand, Kosten, Modell-Badge |
+| `state-<id>.json` | Chat-Zustand (`working`/`awaitingAnswer`/`idle`), Zeitstempel, Ordnername, Branch, Modell | Chat-Übersicht |
+
+**Nie** Prompt- oder Antworttext — mit einer einzigen Ausnahme, die die
+Remote-Umgebung selbst einschalten muss: `XENEON_RELAY_QUESTION_TEXT=1`
+überträgt zusätzlich die **offene Frage** der letzten Antwort, damit der Mac
+sie anzeigen kann. Standard ist aus.
 
 ### Einmaliges Setup
 
@@ -344,12 +353,44 @@ Gist zusätzlich zu den lokalen Logs mit.
    beiden Variablen aus Schritt 3 gesetzt sind). Für andere Repos/Setups
    beide Dateien dorthin kopieren.
 
+### Chat-Zustand aus der Cloud
+
+Damit erscheinen Remote-Sessions auch in der **Chat-Übersicht**, mit einem
+Wolken-Symbol neben dem Namen. Der Hook kann den Zustand nur an den
+Turn-Grenzen sehen, an denen er läuft — und genau daraus ergeben sich die
+drei Zustände:
+
+| Hook | gemeldeter Zustand |
+|---|---|
+| `UserPromptSubmit` (ein Prompt wurde abgeschickt) | `working` |
+| `Stop`, letzte Antwort endet auf eine Frage oder stellt eine per `AskUserQuestion`/`ExitPlanMode` | `awaitingAnswer` |
+| `Stop`, alles andere | `idle` |
+
+Den Rest erledigt der Mac: Er rechnet die gemeldete Zeit gegen seine eigene
+Uhr und dieselben Fenster wie bei lokalen Chats. Stirbt ein Cloud-Container
+mitten im Zug, hört das Melden einfach auf — und das `working` verfällt nach
+`sessionActiveSeconds` zu „offen", statt ewig als „aktiv" stehenzubleiben.
+Nach `sessionOpenHours` fällt der Chat ganz aus der Liste.
+
+Optionale Variablen in der Remote-Umgebung:
+
+| Variable | Wirkung |
+|---|---|
+| `XENEON_RELAY_LABEL` | Anzeigename dieses Chats (Standard: der Ordnername des Arbeitsverzeichnisses — der **volle Pfad** verlässt die Maschine nie) |
+| `XENEON_RELAY_QUESTION_TEXT=1` | überträgt zusätzlich den Text der offenen Frage (Standard: aus) |
+| `XENEON_RELAY_STATE=0` | nur Tokenzahlen melden, keinen Chat-Zustand |
+
 ### Wie es funktioniert
 
-- Der Hook läuft nach jeder Antwort (`Stop`-Hook, `async: true` — blockiert
-  die Session nicht) und schickt bei jedem Turn den **gesamten** bisherigen
+- Der Hook läuft nach jeder Antwort (`Stop`) und beim Abschicken eines
+  Prompts (`UserPromptSubmit`), beide `async: true` — er blockiert die
+  Session nicht. Er schickt bei jedem Turn den **gesamten** bisherigen
   Nutzungsverlauf **dieser einen Session** (eine Gist-Datei pro
-  `session_id`, komplett überschrieben — kein fehleranfälliges Anhängen).
+  `session_id`, komplett überschrieben — kein fehleranfälliges Anhängen)
+  und daneben die eine kleine Zustandsdatei.
+- Beide Dateien gehen in **einem** API-Aufruf raus, und der Mac holt das
+  Gist pro Intervall **einmal** für beides — ein zweiter Abruf nur für die
+  Zustände würde das Anfragebudget unnötig halbieren.
 - Mehrere gleichzeitige Remote-Sessions schreiben in unterschiedliche
   Dateien desselben Gists und stören sich nicht gegenseitig.
 - Das Mac-seitige Polling ist auf **≥60 Sekunden** begrenzt
@@ -360,8 +401,17 @@ Gist zusätzlich zu den lokalen Logs mit.
 
 - Ein **„secret“ Gist ist unlisted, nicht zugriffsgeschützt**: Wer die
   Gist-ID kennt, kann sie lesen, ohne Anmeldung. Das ist der Grund, warum
-  der Hook **ausschließlich** Zeitstempel/Modell/Tokenzahlen hinterlegt —
-  niemals Prompt-Text, Werkzeugausgaben oder Dateiinhalte.
+  der Hook **ausschließlich** Zeitstempel/Modell/Tokenzahlen und den
+  Chat-Zustand hinterlegt — niemals Prompt-Text, Werkzeugausgaben oder
+  Dateiinhalte.
+- Der Chat-Zustand ist trotzdem nicht nichts: `state-<id>.json` verrät
+  **Ordnername, Branch, Modell und Arbeitsrhythmus** der Session. Wem schon
+  das zu viel ist, setzt `XENEON_RELAY_LABEL` auf einen neutralen Namen
+  oder `XENEON_RELAY_STATE=0`.
+- `XENEON_RELAY_QUESTION_TEXT=1` ist die **einzige** Einstellung, die echten
+  Gesprächstext in das Gist schreibt (die offene Frage, gekürzt auf 200
+  Zeichen). Sie ist bewusst standardmäßig aus und sollte es bleiben, wenn
+  die Gist-ID je in fremde Hände geraten könnte.
 - Der Schreib-Token (`XENEON_USAGE_GIST_TOKEN`) muss in jeder getrackten
   Remote-Umgebung als Umgebungsvariable liegen. Behandle ihn wie ein
   Passwort; scope ihn nur auf `gist`, sonst nichts.
