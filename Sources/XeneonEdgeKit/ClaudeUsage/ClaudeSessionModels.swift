@@ -49,13 +49,18 @@ public struct ClaudeSessionSummary: Equatable, Identifiable {
     public let runningAgents: Int
     /// Tool the session is currently executing, if it is mid-turn.
     public let runningTool: String?
+    /// Reported by the cloud relay instead of read from a local transcript.
+    /// Such a chat runs on another machine, so its detail is coarser: the
+    /// state as of the relay's last publish, and a question only when the
+    /// remote environment was allowed to relay the text.
+    public let isRemote: Bool
     /// Profile this chat belongs to; empty when only one is tracked.
     public var profileName: String
 
     public init(id: String, directory: String?, gitBranch: String?, lastActivity: Date,
                 state: ClaudeSessionState, question: String? = nil, lastPrompt: String? = nil,
                 model: String? = nil, runningAgents: Int = 0, runningTool: String? = nil,
-                profileName: String = "") {
+                isRemote: Bool = false, profileName: String = "") {
         self.id = id
         self.directory = directory
         self.gitBranch = gitBranch
@@ -66,6 +71,7 @@ public struct ClaudeSessionSummary: Equatable, Identifiable {
         self.model = model
         self.runningAgents = runningAgents
         self.runningTool = runningTool
+        self.isRemote = isRemote
         self.profileName = profileName
     }
 
@@ -121,6 +127,9 @@ public struct ClaudeSessionsSnapshot: Equatable {
             .max(by: { $0.lastActivity < $1.lastActivity })
     }
 
+    /// Chats running elsewhere, reported through the cloud relay.
+    public var remoteCount: Int { sessions.reduce(0) { $0 + ($1.isRemote ? 1 : 0) } }
+
     /// Merges per-profile snapshots into one list.
     public static func merged(_ snapshots: [ClaudeSessionsSnapshot],
                               now: Date = Date()) -> ClaudeSessionsSnapshot {
@@ -128,6 +137,26 @@ public struct ClaudeSessionsSnapshot: Equatable {
             sessions: ClaudeSessionReader.sort(snapshots.flatMap(\.sessions)),
             lastUpdated: now
         )
+    }
+
+    /// Folds chats reported by the cloud relay into this snapshot.
+    ///
+    /// A relayed state is a snapshot of the moment the remote session last
+    /// published, so the same two time rules the local scan applies are
+    /// applied here as well, against the clock of *this* Mac: a "working"
+    /// that has since gone quiet becomes idle, and anything past the open
+    /// window drops out. Without that, a cloud session whose container was
+    /// reclaimed mid-turn would sit in the overview as "active" forever.
+    public func merging(remote: [ClaudeSessionSummary], now: Date = Date(),
+                        options: ClaudeSessionReader.Options
+                            = ClaudeSessionReader.Options()) -> ClaudeSessionsSnapshot {
+        let cutoff = now.addingTimeInterval(-options.openWindow)
+        let fresh = remote
+            .filter { $0.lastActivity >= cutoff }
+            .map { ClaudeSessionReader.applyingActiveWindow($0, now: now, options: options) }
+        guard !fresh.isEmpty else { return self }
+        return ClaudeSessionsSnapshot(sessions: ClaudeSessionReader.sort(sessions + fresh),
+                                      lastUpdated: now)
     }
 }
 

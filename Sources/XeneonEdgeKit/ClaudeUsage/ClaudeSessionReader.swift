@@ -149,7 +149,7 @@ public final class ClaudeSessionReader {
         // "working" turns into "idle" purely by the clock moving on.
         if let cached = cache[url.path], cached.modificationDate == modificationDate,
            cached.size == size {
-            return cached.summary.map { Self.restate($0, now: now, options: options) }
+            return cached.summary.map { Self.applyingActiveWindow($0, now: now, options: options) }
         }
         guard let lines = Self.tailLines(of: url) else { return nil }
         let id = url.deletingPathExtension().lastPathComponent
@@ -317,11 +317,12 @@ public final class ClaudeSessionReader {
         )
     }
 
-    /// Re-evaluates the time-dependent half of the state for a cached parse:
-    /// a chat that was working when we last parsed its file becomes idle once
-    /// the active window passes, without the file changing at all.
-    private static func restate(_ summary: ClaudeSessionSummary, now: Date,
-                                options: Options) -> ClaudeSessionSummary {
+    /// Re-evaluates the time-dependent half of the state: a chat that was
+    /// working when its file was last parsed — or when a cloud relay last
+    /// published it — becomes idle once the active window passes, without
+    /// anything about the chat itself changing.
+    public static func applyingActiveWindow(_ summary: ClaudeSessionSummary, now: Date,
+                                            options: Options) -> ClaudeSessionSummary {
         guard summary.state == .working,
               now.timeIntervalSince(summary.lastActivity) > options.activeWindow
         else { return summary }
@@ -330,7 +331,7 @@ public final class ClaudeSessionReader {
             lastActivity: summary.lastActivity, state: .idle, question: summary.question,
             lastPrompt: summary.lastPrompt, model: summary.model,
             runningAgents: summary.runningAgents, runningTool: nil,
-            profileName: summary.profileName
+            isRemote: summary.isRemote, profileName: summary.profileName
         )
     }
 
