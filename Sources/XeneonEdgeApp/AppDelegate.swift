@@ -116,7 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     /// Starts or stops the background work behind the optional panels, so a
     /// switched-off widget costs nothing.
     private func applyWidgetServices() {
-        if configStore.config.showClaudeUsage {
+        // Das Claude-Modell laeuft auch fuer das Chat-Panel allein: es ist
+        // der einzige Abfrager des Cloud-Relays, und dessen Gist traegt
+        // beide Haelften - Tokenzahlen und Chat-Zustaende. Ein zweiter
+        // Abfrager wuerde GitHubs Limit von 60 unauthentifizierten
+        // Anfragen pro Stunde und IP doppelt so schnell aufbrauchen.
+        if configStore.config.showClaudeUsage || configStore.config.showClaudeSessions {
             claudeModel.start(profiles: configStore.config.claudeProfiles,
                               cloudGistID: configStore.config.cloudGistID,
                               cloudPollSeconds: configStore.config.cloudPollSeconds)

@@ -250,6 +250,14 @@ final class ClaudeUsageModel: ObservableObject {
     /// Profiles that have received at least one entry from a cloud relay, so
     /// the panel can show that it isn't showing local-only numbers.
     @Published var cloudProfileIDs: Set<UUID> = []
+    /// Chats running in a remote/cloud environment, as the relay last
+    /// reported them, already tagged with their profile's name.
+    ///
+    /// They are published here rather than in ClaudeSessionsModel because
+    /// one gist fetch carries both halves of the relay: polling the same
+    /// gist a second time for the chat states would double the request
+    /// count against GitHub's 60 per hour and IP.
+    @Published var cloudSessions: [ClaudeSessionSummary] = []
 
     /// Stands in for the auto-detected profile when none are configured.
     static let autoProfileID = UUID()
@@ -259,6 +267,7 @@ final class ClaudeUsageModel: ObservableObject {
     private var timer: Timer?
     private var cloudTimer: Timer?
     private var cloudEntries: [UUID: [ClaudeUsageEntry]] = [:]
+    private var cloudChats: [UUID: [ClaudeSessionSummary]] = [:]
     private var cloudSources: [(id: UUID, gistID: String)] = []
     private var profiles: [ClaudeProfile] = []
 
@@ -285,6 +294,8 @@ final class ClaudeUsageModel: ObservableObject {
         cloudTimer?.invalidate()
         cloudTimer = nil
         cloudEntries = [:]
+        cloudChats = [:]
+        cloudSessions = []
         cloudSources = []
         profiles = []
         cloudProfileIDs = []
@@ -330,6 +341,8 @@ final class ClaudeUsageModel: ObservableObject {
         self.profiles = profiles
         cloudSources = sources
         cloudEntries = [:]
+        cloudChats = [:]
+        cloudSessions = []
         cloudProfileIDs = []
         cloudTimer?.invalidate()
         cloudTimer = nil
@@ -352,21 +365,39 @@ final class ClaudeUsageModel: ObservableObject {
         guard !sources.isEmpty else { return }
         Task { [weak self] in
             for source in sources {
-                let entries = await CloudUsageFetcher.fetch(gistID: source.gistID)
+                let payload = await CloudUsageFetcher.fetchRelay(gistID: source.gistID)
                 await MainActor.run {
                     guard let self,
                           self.cloudSources.contains(where: {
                               $0.id == source.id && $0.gistID == source.gistID
                           })
                     else { return }
-                    self.cloudEntries[source.id] = entries
-                    if entries.isEmpty {
+                    self.cloudEntries[source.id] = payload.entries
+                    self.cloudChats[source.id] = payload.sessions
+                    self.cloudSessions = self.taggedCloudSessions()
+                    // Nur die Tokenzahlen entscheiden ueber das
+                    // Cloud-Abzeichen an der Nutzungsanzeige: ein reiner
+                    // Zustandseintrag faerbt dort keine Zahl ein.
+                    if payload.entries.isEmpty {
                         self.cloudProfileIDs.remove(source.id)
                     } else {
                         self.cloudProfileIDs.insert(source.id)
                     }
                     self.refresh()
                 }
+            }
+        }
+    }
+
+    /// Flattens the per-profile relay chats and labels each one with its
+    /// profile, the way the local scan labels the chats it finds.
+    private func taggedCloudSessions() -> [ClaudeSessionSummary] {
+        cloudChats.flatMap { id, chats -> [ClaudeSessionSummary] in
+            let name = profiles.first(where: { $0.id == id })?.name ?? ""
+            return chats.map { chat in
+                var tagged = chat
+                tagged.profileName = name
+                return tagged
             }
         }
     }

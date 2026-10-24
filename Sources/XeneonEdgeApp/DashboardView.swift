@@ -326,9 +326,21 @@ struct MediaButton: View {
 /// newest open question, and the chats themselves in order of urgency.
 struct ClaudeSessionsPanel: View {
     @EnvironmentObject var claudeSessions: ClaudeSessionsModel
+    @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var configStore: ConfigStore
 
-    private var snapshot: ClaudeSessionsSnapshot { claudeSessions.snapshot }
+    /// Local chats plus the ones the relay reports from remote/cloud
+    /// sessions. The merge re-applies the time rules against this Mac's
+    /// clock, so a relayed "working" that has gone quiet shows as idle.
+    private var snapshot: ClaudeSessionsSnapshot {
+        claudeSessions.snapshot.merging(
+            remote: claude.cloudSessions,
+            options: ClaudeSessionReader.Options(
+                activeWindow: max(30, configStore.config.claudeSessionActiveSeconds),
+                openWindow: max(600, configStore.config.claudeSessionOpenHours * 3_600)
+            )
+        )
+    }
 
     static func color(for state: ClaudeSessionState) -> Color {
         switch state {
@@ -367,6 +379,12 @@ struct ClaudeSessionsPanel: View {
             Spacer(minLength: 0)
             if snapshot.runningAgents > 0 {
                 Label("\(snapshot.runningAgents)", systemImage: "person.2.fill")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textSecondary)
+            }
+            if snapshot.remoteCount > 0 {
+                Label("\(snapshot.remoteCount)", systemImage: "icloud")
                     .font(.system(size: 12))
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textSecondary)
@@ -429,6 +447,11 @@ struct ClaudeSessionsPanel: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(EdgeTheme.textPrimary)
                 .lineLimit(1)
+            if session.isRemote {
+                Image(systemName: "icloud")
+                    .font(.system(size: 10))
+                    .foregroundColor(EdgeTheme.textSecondary)
+            }
             if session.runningAgents > 0 {
                 Label("\(session.runningAgents)", systemImage: "person.2.fill")
                     .font(.system(size: 10))
