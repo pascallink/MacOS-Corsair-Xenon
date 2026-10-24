@@ -21,6 +21,7 @@ USAGE:
   xeneonctl ddc get <vcp-hex>         Read a raw VCP feature (e.g. 0x10)
   xeneonctl ddc set <vcp-hex> <value> Write a raw VCP feature
   xeneonctl touch-monitor [--seize]   Print live touch events (Ctrl+C to stop)
+  xeneonctl bitbucket-check           Check the Bitbucket connection and print the counts
 
 OPTIONS:
   --display <n>   Select the I2C service explicitly by index (default: the
@@ -264,6 +265,9 @@ case "touch-monitor":
               : "seize refused — macOS keeps moving the cursor from the same reports")
     }
     CFRunLoopRun()
+
+case "bitbucket-check":
+    BitbucketCheck.run()
 
 case "help", "--help", "-h":
     print(usage)
