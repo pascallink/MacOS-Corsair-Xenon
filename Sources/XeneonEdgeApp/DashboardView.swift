@@ -15,6 +15,8 @@ enum EdgeTheme {
     static let accent = Color(red: 0.93, green: 0.79, blue: 0.12) // Corsair yellow
     static let good = Color(red: 0.35, green: 0.80, blue: 0.45)
     static let warn = Color(red: 0.95, green: 0.55, blue: 0.20)
+    /// Zweites Ringsegment (Eigenverbrauch eines Volumes), klar von accent getrennt.
+    static let highlight = Color(red: 0.35, green: 0.62, blue: 0.95)
     static let critical = Color(red: 0.92, green: 0.30, blue: 0.30)
     static let textPrimary = Color.white.opacity(0.92)
     static let textSecondary = Color.white.opacity(0.55)
@@ -153,7 +155,7 @@ struct StatsPanel: View {
     var body: some View {
         Panel(title: "System", systemImage: "gauge.medium") {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 24) {
+                HStack(spacing: stats.snapshot.extraDisks.isEmpty ? 24 : 14) {
                     GaugeView(label: "CPU",
                               value: stats.snapshot.cpuUsage,
                               text: String(format: "%.0f%%", stats.snapshot.cpuUsage * 100))
@@ -162,7 +164,17 @@ struct StatsPanel: View {
                               text: ByteFormatter.size(stats.snapshot.memoryUsed))
                     GaugeView(label: "SSD · \(ByteFormatter.size(stats.snapshot.disk.available)) frei",
                               value: stats.snapshot.disk.usage,
-                              text: String(format: "%.0f%%", stats.snapshot.disk.usage * 100))
+                              text: String(format: "%.0f%%", stats.snapshot.disk.usage * 100),
+                              segment: stats.snapshot.diskHighlight?.usage.usage,
+                              segmentColor: EdgeTheme.highlight,
+                              legend: stats.snapshot.diskHighlight.map {
+                                  "\($0.name) \(ByteFormatter.size($0.usage.used))"
+                              })
+                    ForEach(stats.snapshot.extraDisks, id: \.name) { disk in
+                        GaugeView(label: "\(disk.name) · \(ByteFormatter.size(disk.usage.available)) frei",
+                                  value: disk.usage.usage,
+                                  text: String(format: "%.0f%%", disk.usage.usage * 100))
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         NetworkRow(symbol: "arrow.down",
                                    text: ByteFormatter.rate(stats.snapshot.networkRxBytesPerSecond))
@@ -202,6 +214,12 @@ struct GaugeView: View {
     let label: String
     let value: Double // 0...1
     let text: String
+    /// Optionales zweites Segment: Anteil 0...1 vom Ringanfang, ueber dem
+    /// Gesamt-Fuellstand gezeichnet.
+    var segment: Double? = nil
+    var segmentColor: Color = EdgeTheme.highlight
+    /// Kleine Zeile unter dem Label, in der Segmentfarbe.
+    var legend: String? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -215,6 +233,13 @@ struct GaugeView: View {
                     .stroke(EdgeTheme.accent, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                     .rotationEffect(.degrees(135))
                     .animation(.easeOut(duration: 0.4), value: value)
+                if let segment {
+                    Circle()
+                        .trim(from: 0, to: 0.75 * min(max(segment, 0), min(max(value, 0), 1)))
+                        .stroke(segmentColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                        .rotationEffect(.degrees(135))
+                        .animation(.easeOut(duration: 0.4), value: segment)
+                }
                 Text(text)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -225,6 +250,11 @@ struct GaugeView: View {
             Text(label)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(EdgeTheme.textSecondary)
+            if let legend {
+                Text(legend)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(segmentColor)
+            }
         }
     }
 }

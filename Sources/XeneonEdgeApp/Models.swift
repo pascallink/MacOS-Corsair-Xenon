@@ -84,6 +84,13 @@ final class StatsModel: ObservableObject {
         timer?.invalidate()
         timer = nil
     }
+
+    /// Setzt die Volume-Pfade fuer Highlight und Zusatz-Ringe. Aufruf auf
+    /// Main, wie der Timer, damit `SystemStats` nicht parallel laeuft.
+    func setVolumePaths(highlight: String, extras: [String]) {
+        stats.highlightVolumePath = highlight
+        stats.extraVolumePaths = extras
+    }
 }
 
 // MARK: - Media

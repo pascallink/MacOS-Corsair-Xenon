@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     /// Starts or stops the background work behind the optional panels, so a
     /// switched-off widget costs nothing.
     private func applyWidgetServices() {
+        statsModel.setVolumePaths(highlight: configStore.config.diskHighlightVolume,
+                                  extras: configStore.config.extraDiskVolumes)
         if configStore.config.showClaudeUsage {
             claudeModel.start(profiles: configStore.config.claudeProfiles,
                               cloudGistID: configStore.config.cloudGistID,
