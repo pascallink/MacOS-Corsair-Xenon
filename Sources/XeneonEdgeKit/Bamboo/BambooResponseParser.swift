@@ -64,20 +64,32 @@ public enum BambooResponseParser {
         return number.doubleValue
     }
 
-    private static func parseDate(_ text: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: text) { return date }
+    // Einmal angelegt, danach nur noch zum Parsen benutzt (dafuer thread-sicher).
+    private nonisolated(unsafe) static let isoWithFraction: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        if let date = plain.date(from: text) { return date }
+    private nonisolated(unsafe) static let isoPlain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 
-        // Offset ohne Doppelpunkt (+0100), wie ihn manche Bamboo-Versionen liefern.
-        for pattern in ["yyyy-MM-dd'T'HH:mm:ss.SSSZ", "yyyy-MM-dd'T'HH:mm:ssZ"] {
+    // Offset ohne Doppelpunkt (+0100), wie ihn manche Bamboo-Versionen liefern.
+    private static let offsetFormatters: [DateFormatter] =
+        ["yyyy-MM-dd'T'HH:mm:ss.SSSZ", "yyyy-MM-dd'T'HH:mm:ssZ"].map { pattern in
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = pattern
+            return formatter
+        }
+
+    private static func parseDate(_ text: String) -> Date? {
+        if let date = isoWithFraction.date(from: text) { return date }
+        if let date = isoPlain.date(from: text) { return date }
+        for formatter in offsetFormatters {
             if let date = formatter.date(from: text) { return date }
         }
         return nil
