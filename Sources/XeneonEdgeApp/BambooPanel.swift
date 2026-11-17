@@ -27,7 +27,7 @@ final class BambooModel: ObservableObject {
         self.windowDays = windowDays
 
         // Gleiche Config bei laufendem Timer: nichts neu starten.
-        let sig = "\(urlText)|\(plans.map(\.key))|\(windowDays)|\(includeBranches)|\(interval)"
+        let sig = "\(urlText)|\(plans.map { "\($0.key):\($0.name):\($0.extended)" })|\(windowDays)|\(includeBranches)|\(interval)"
         if timer != nil, sig == signature { return }
         signature = sig
         timer?.invalidate()
