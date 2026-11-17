@@ -34,6 +34,8 @@ public struct KIVersionRing: Equatable, Identifiable {
     public var project: String
     public var name: String
     public var label: String
+    /// Startdatum der Version (JJJJ-MM-TT).
+    public var startDate: String?
     public var releaseDate: String?
     public var released: Bool
     public var total: Int
@@ -42,12 +44,13 @@ public struct KIVersionRing: Equatable, Identifiable {
     public var scorePercent: Int?
 
     public init(id: String, project: String, name: String, label: String,
-                releaseDate: String? = nil, released: Bool = false, total: Int,
+                startDate: String? = nil, releaseDate: String? = nil, released: Bool = false, total: Int,
                 areas: [KIAreaCount], scorePercent: Int? = nil) {
         self.id = id
         self.project = project
         self.name = name
         self.label = label
+        self.startDate = startDate
         self.releaseDate = releaseDate
         self.released = released
         self.total = total
@@ -116,6 +119,7 @@ public enum KIVersionsParser {
         if let score = dict["score"] as? [String: Any] { scorePercent = number(score["percent"]) }
         return KIVersionRing(
             id: id, project: project, name: nonEmptyString(dict["name"]) ?? label, label: label,
+            startDate: nonEmptyString(dict["startDate"]),
             releaseDate: nonEmptyString(dict["releaseDate"]),
             released: bool(dict["released"]) ?? false,
             total: total, areas: areas, scorePercent: scorePercent)

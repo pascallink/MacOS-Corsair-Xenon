@@ -214,4 +214,77 @@ private final class StubProtocol: URLProtocol {
         let set = try JSONDecoder().decode(AppConfig.self, from: data(#"{"showKIVersions":false,"kiDashboardURL":"http://x:3000","kiDashboardProjects":["DBCUBE"]}"#))
         #expect(set.showKIVersions == false && set.kiDashboardURL == "http://x:3000" && set.kiDashboardProjects == ["DBCUBE"])
     }
+
+    // MARK: Zeitstrahl
+
+    private func at(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12, _ min: Int = 0, _ s: Int = 0) -> Date {
+        berlin.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min, second: s))!
+    }
+
+    private func timeline(_ start: String?, _ release: String?, released: Bool = false, today: Date) -> KIVersionTimeline {
+        KIVersionTimeline.make(startDate: start, releaseDate: release, released: released,
+                               today: today, calendar: berlin)
+    }
+
+    @Test func parserReadsStartDate() throws {
+        let json = #"{"versions":[{"id":"1","project":"P","label":"L","startDate":"2026-11-01","releaseDate":"2026-12-15","total":1}]}"#
+        let rings = try #require(KIVersionsParser.versions(from: data(json), projects: []))
+        #expect(rings[0].startDate == "2026-11-01" && rings[0].releaseDate == "2026-12-15")
+        let none = try #require(KIVersionsParser.versions(from: wrap([entry()]), projects: []))
+        #expect(none[0].startDate == nil)
+    }
+
+    @Test func timelineRunningPluralAndSingular() {
+        let p = timeline(nil, "2026-11-20", today: at(2026, 11, 17))
+        #expect(p.state == .running && p.daysLeft == 3 && p.text == "noch 3 Tage" && p.elapsed == nil)
+        let s = timeline(nil, "2026-11-18", today: at(2026, 11, 17))
+        #expect(s.state == .running && s.daysLeft == 1 && s.text == "noch 1 Tag")
+    }
+
+    @Test func timelineDueToday() {
+        let t = timeline(nil, "2026-11-17", today: at(2026, 11, 17))
+        #expect(t.state == .dueToday && t.daysLeft == 0 && t.text == "Lieferung heute")
+    }
+
+    @Test func timelineOverdue() {
+        let one = timeline(nil, "2026-11-16", today: at(2026, 11, 17))
+        #expect(one.state == .overdue && one.daysLeft == -1 && one.text == "1 Tag ueberfaellig")
+        let many = timeline(nil, "2026-11-10", today: at(2026, 11, 17))
+        #expect(many.state == .overdue && many.daysLeft == -7 && many.text == "7 Tage ueberfaellig")
+    }
+
+    @Test func timelineReleased() {
+        let both = timeline("2026-11-01", "2026-11-21", released: true, today: at(2026, 11, 11))
+        #expect(both.state == .released && both.text == "geliefert" && both.elapsed == 1 && both.daysLeft == 10)
+        let none = timeline(nil, nil, released: true, today: at(2026, 11, 11))
+        #expect(none.state == .released && none.daysLeft == nil && none.elapsed == nil)
+    }
+
+    @Test func timelineNoDate() {
+        let t = timeline("2026-11-01", nil, today: at(2026, 11, 11))
+        #expect(t.state == .noDate && t.daysLeft == nil && t.elapsed == nil && t.text == "ohne Lieferdatum")
+    }
+
+    @Test func timelineInvalidDateIsNoDate() {
+        let t = timeline(nil, "2026-13-40", today: at(2026, 11, 11))
+        #expect(t.state == .noDate && t.daysLeft == nil)
+    }
+
+    @Test func timelineElapsedMiddleAndClamped() {
+        #expect(timeline("2026-11-01", "2026-11-21", today: at(2026, 11, 11)).elapsed == 0.5)
+        #expect(timeline("2026-11-01", "2026-11-21", today: at(2026, 10, 20)).elapsed == 0)
+        #expect(timeline("2026-11-01", "2026-11-21", today: at(2026, 12, 5)).elapsed == 1)
+    }
+
+    @Test func timelineElapsedNilWhenReleaseNotAfterStart() {
+        #expect(timeline("2026-11-21", "2026-11-21", today: at(2026, 11, 21)).elapsed == nil)
+        #expect(timeline("2026-11-25", "2026-11-21", today: at(2026, 11, 21)).elapsed == nil)
+    }
+
+    @Test func timelineLateEveningCountsAsSameDay() {
+        let t = timeline(nil, "2026-11-18", today: at(2026, 11, 17, 23, 59, 59))
+        #expect(t.daysLeft == 1)
+        let d = timeline(nil, "2026-11-17", today: at(2026, 11, 17, 23, 59, 59))
+        #expect(d.state == .dueToday)
+    }
 }
