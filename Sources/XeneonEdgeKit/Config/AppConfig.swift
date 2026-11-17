@@ -98,6 +98,14 @@ public struct AppConfig: Codable, Equatable {
     public var claudeSessionActiveSeconds: Double = 300
     /// Chats untouched for longer than this many hours drop off the list.
     public var claudeSessionOpenHours: Double = 12
+    /// Panel "Claude" zeigt statt der Token-Balken die Versionsringe aus dem
+    /// KI-Dashboard; aus = alte Balken. Die Token-Budgets bleiben unveraendert.
+    public var showKIVersions = true
+    /// Basis-URL des lokalen KI-Dashboards (Docker :3001, lokal :3000).
+    public var kiDashboardURL = "http://127.0.0.1:3001"
+    /// Jira-Projekte, deren Fix-Versionen als Ringe erscheinen (Reihenfolge
+    /// wie hier); leer = alle.
+    public var kiDashboardProjects: [String] = ["DBREFI", "DBCUBE"]
 
     /// Mountpunkt eines APFS-Volumes im Boot-Container (z. B.
     /// "/Volumes/Sources"), dessen Eigenverbrauch der SSD-Ring als zweites
@@ -173,6 +181,9 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionRows = try c.decodeIfPresent(Int.self, forKey: .claudeSessionRows) ?? d.claudeSessionRows
         claudeSessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .claudeSessionActiveSeconds) ?? d.claudeSessionActiveSeconds
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
+        showKIVersions = try c.decodeIfPresent(Bool.self, forKey: .showKIVersions) ?? d.showKIVersions
+        kiDashboardURL = try c.decodeIfPresent(String.self, forKey: .kiDashboardURL) ?? d.kiDashboardURL
+        kiDashboardProjects = try c.decodeIfPresent([String].self, forKey: .kiDashboardProjects) ?? d.kiDashboardProjects
         diskHighlightVolume = try c.decodeIfPresent(String.self, forKey: .diskHighlightVolume) ?? d.diskHighlightVolume
         extraDiskVolumes = try c.decodeIfPresent([String].self, forKey: .extraDiskVolumes) ?? d.extraDiskVolumes
         showDocker = try c.decodeIfPresent(Bool.self, forKey: .showDocker) ?? d.showDocker

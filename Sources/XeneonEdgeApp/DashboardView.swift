@@ -566,6 +566,8 @@ struct ClaudeUsagePanel: View {
     @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var configStore: ConfigStore
 
+    private var showVersions: Bool { configStore.config.showKIVersions }
+
     private var block: UsageBlock? { claude.snapshot.activeBlock }
 
     private var blockTokens: Int { block?.totals.billableTokens ?? 0 }
@@ -589,11 +591,18 @@ struct ClaudeUsagePanel: View {
     }
 
     var body: some View {
-        Panel(title: "Claude", systemImage: "gauge.with.needle") {
-            if claude.isMultiProfile {
-                profileList
-            } else {
-                singleProfile
+        if showVersions {
+            // Nur die Versionsringe, ohne Session-Teil.
+            Panel(title: "Fix-Versionen", systemImage: "chart.pie") {
+                KIVersionRingsView()
+            }
+        } else {
+            Panel(title: "Claude", systemImage: "gauge.with.needle") {
+                if claude.isMultiProfile {
+                    profileList
+                } else {
+                    singleProfile
+                }
             }
         }
     }
@@ -720,10 +729,12 @@ struct ClaudeUsagePanel: View {
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textPrimary)
             }
-            claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
-                .frame(height: 5)
-            ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
-                claudeLimitRowView(row)
+            if !showVersions {
+                claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
+                    .frame(height: 5)
+                ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
+                    claudeLimitRowView(row)
+                }
             }
             HStack(spacing: 5) {
                 if let block = snapshot.activeBlock {
