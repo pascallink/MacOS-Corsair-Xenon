@@ -227,9 +227,9 @@ struct KIVersionRingView: View {
                 }
             }
         }
-        // Mindestens so breit, dass "12 Tage ueberfaellig" samt Datum ohne
-        // Kuerzung passt, auch wenn der Ring klein ist; die Zelle begrenzt.
-        .frame(width: max(diameter, Self.timelineMinWidth))
+        // Hoechstens so breit, dass "12 Tage ueberfaellig" samt Datum auch
+        // unter einem kleinen Ring passt; bei schmaler Zelle schrumpft sie mit.
+        .frame(minWidth: 0, maxWidth: max(diameter, Self.timelineMinWidth))
     }
 
     private static let timelineMinWidth: CGFloat = 160
