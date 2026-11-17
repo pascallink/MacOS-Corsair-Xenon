@@ -27,7 +27,7 @@ gehoert zu genau einer Suite, Schnitt entlang der Verantwortung im Quellcode.
 
 | Suite | Quellen | Tests |
 | --- | --- | --- |
-| `BambooTests` | `Sources/XeneonEdgeKit/Bamboo/` (alle Dateien), `Config/AppConfig.swift` (Bamboo-Felder) | 24 |
+| `BambooTests` | `Sources/XeneonEdgeKit/Bamboo/` (alle Dateien), `Config/AppConfig.swift` (Bamboo-Felder) | 30 |
 | `BitbucketClientTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketClient.swift`, `BitbucketCredentials.swift` | 11 |
 | `BitbucketOverviewTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketOverview.swift` | 17 |
 | `BitbucketParserTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketResponseParser.swift` | 17 |

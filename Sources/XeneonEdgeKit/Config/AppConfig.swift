@@ -31,6 +31,15 @@ public struct LauncherItem: Codable, Equatable, Identifiable {
     }
 }
 
+/// Dekodiert einen Plan-Eintrag, ohne bei Fehlern zu werfen (plan ist dann nil).
+private struct LossyBambooPlan: Decodable {
+    let plan: BambooPlan?
+
+    init(from decoder: Decoder) throws {
+        plan = try? BambooPlan(from: decoder)
+    }
+}
+
 public struct AppConfig: Codable, Equatable {
     // Touch
     public var touchEnabled = true
@@ -191,7 +200,10 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
         showBamboo = try c.decodeIfPresent(Bool.self, forKey: .showBamboo) ?? d.showBamboo
         bambooBaseURL = try c.decodeIfPresent(String.self, forKey: .bambooBaseURL) ?? d.bambooBaseURL
-        bambooPlans = try c.decodeIfPresent([BambooPlan].self, forKey: .bambooPlans) ?? d.bambooPlans
+        // Kaputte Plan-Eintraege (z. B. ohne key) fliegen einzeln raus; ein
+        // Typfehler beim ganzen Feld faellt auf den Default zurueck.
+        bambooPlans = (try? c.decodeIfPresent([LossyBambooPlan].self, forKey: .bambooPlans))?
+            .compactMap(\.plan) ?? d.bambooPlans
         bambooIncludeBranches = try c.decodeIfPresent(Bool.self, forKey: .bambooIncludeBranches) ?? d.bambooIncludeBranches
         bambooWindowDays = try c.decodeIfPresent(Int.self, forKey: .bambooWindowDays) ?? d.bambooWindowDays
         bambooRefreshMinutes = try c.decodeIfPresent(Double.self, forKey: .bambooRefreshMinutes) ?? d.bambooRefreshMinutes

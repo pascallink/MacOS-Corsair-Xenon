@@ -466,4 +466,20 @@ private struct FixedBambooToken: BambooTokenSource {
         #expect(config.bambooPlans.map(\.extended) == [false, true])
         #expect(config.bambooWindowDays == 7)
     }
+
+    @Test("config drops broken plan entries individually")
+    func configDropsBrokenPlans() throws {
+        let json = #"{"bambooPlans":[{"name":"ohne key"},{"key":"X-Y"}],"showClock":false}"#
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(config.bambooPlans.map(\.key) == ["X-Y"])
+        #expect(config.showClock == false)
+
+        let wrongType = #"{"bambooPlans":"kaputt","showClock":false}"#
+        let fallback = try JSONDecoder().decode(AppConfig.self, from: Data(wrongType.utf8))
+        #expect(fallback.bambooPlans == BambooPlan.defaultPlans)
+        #expect(fallback.showClock == false)
+
+        let empty = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"bambooPlans":[]}"#.utf8))
+        #expect(empty.bambooPlans.isEmpty)
+    }
 }
