@@ -549,3 +549,111 @@ final class WeatherModel: ObservableObject {
         }.resume()
     }
 }
+
+// MARK: - KI-Dashboard Versionen
+
+/// Versionsringe aus dem lokalen KI-Dashboard. Abruf beim Start und danach zu
+/// den festen Slots von `KIVersionsSchedule` (einmaliger Timer, nach jedem
+/// Feuern neu geplant). Das Ergebnis wird auf Main veroeffentlicht.
+final class KIVersionsModel: ObservableObject {
+    @Published var versions: [KIVersionRing] = []
+    @Published var lastSuccess: Date?
+    @Published var errorText: String?
+
+    private let schedule = KIVersionsSchedule()
+    private var reader: KIVersionsReader?
+    private var key: String?
+    private var timer: Timer?
+    private var nextRun: Date?
+    private var fetchInFlight = false
+    private var running = false
+    private var wakeObserver: NSObjectProtocol?
+
+    /// Wiederholte Aufrufe mit gleicher URL und Projekten tun nichts; eine
+    /// Aenderung ersetzt Reader und Timer.
+    func start(baseURL: String, projects: [String]) {
+        let newKey = baseURL + "|" + projects.joined(separator: ",")
+        if running, newKey == key { return }
+        timer?.invalidate()
+        timer = nil
+        key = newKey
+        reader = KIVersionsReader(baseURL: baseURL, projects: projects)
+        fetchInFlight = false // Ergebnis des alten Readers wird verworfen
+        running = true
+        if wakeObserver == nil {
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.didWake() }
+        }
+        poll()
+        scheduleNext()
+    }
+
+    func stop() {
+        running = false
+        key = nil
+        reader = nil
+        fetchInFlight = false
+        timer?.invalidate()
+        timer = nil
+        nextRun = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+        versions = []
+        lastSuccess = nil
+        errorText = nil
+    }
+
+    private func scheduleNext() {
+        timer?.invalidate()
+        let fire = schedule.naechsterLauf(nach: Date())
+        nextRun = fire
+        let t = Timer(fire: fire, interval: 0, repeats: false) { [weak self] _ in
+            guard let self, self.running else { return }
+            self.poll()
+            self.scheduleNext()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Ein im Schlaf faellig gewordener Lauf wird einmal nachgeholt.
+    private func didWake() {
+        guard running else { return }
+        if let nextRun, nextRun <= Date() { poll() }
+        scheduleNext()
+    }
+
+    private func poll() {
+        guard running, !fetchInFlight, let reader else { return }
+        fetchInFlight = true
+        reader.fetch { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // Nur Ergebnisse des aktuellen Readers zaehlen; nach stop()
+                // oder Austausch werden sie verworfen.
+                guard self.running, self.reader === reader else { return }
+                self.fetchInFlight = false
+                switch result {
+                case .success(let rings):
+                    self.versions = rings
+                    self.lastSuccess = Date()
+                    self.errorText = nil
+                case .failure(let error):
+                    self.errorText = Self.text(for: error)
+                }
+            }
+        }
+    }
+
+    private static func text(for error: KIVersionsError) -> String {
+        switch error {
+        case .http(let code, _): return "KI-Dashboard meldet HTTP \(code)"
+        case .invalidResponse: return "KI-Dashboard: ungueltige Antwort"
+        case .invalidURL: return "KI-Dashboard: ungueltige Adresse"
+        case .unreachable: return "KI-Dashboard nicht erreichbar"
+        }
+    }
+}

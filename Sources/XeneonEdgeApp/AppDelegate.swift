@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker, kiVersions
 
     var title: String {
         switch self {
@@ -24,6 +24,7 @@ private enum WidgetToggle: Int, CaseIterable {
         case .claudeSessions: return "Claude-Chats"
         case .calendar: return "Termine"
         case .docker: return "Docker (im System-Panel)"
+        case .kiVersions: return "KI-Versionen statt Token-Balken"
         }
     }
 }
@@ -39,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let claudeSessionsModel = ClaudeSessionsModel()
     private let agendaModel = AgendaModel()
     private let dockerModel = DockerModel()
+    private let kiVersionsModel = KIVersionsModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -79,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(claudeSessionsModel)
             .environmentObject(agendaModel)
             .environmentObject(dockerModel)
+            .environmentObject(kiVersionsModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -128,6 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             claudeModel.stop()
         }
+        if configStore.config.showClaudeUsage && configStore.config.showKIVersions {
+            kiVersionsModel.start(baseURL: configStore.config.kiDashboardURL,
+                                  projects: configStore.config.kiDashboardProjects)
+        } else {
+            kiVersionsModel.stop()
+        }
         if configStore.config.showClaudeSessions {
             claudeSessionsModel.start(
                 profiles: configStore.config.claudeProfiles,
@@ -169,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .claudeSessions: return configStore.config.showClaudeSessions
         case .calendar: return configStore.config.showCalendar
         case .docker: return configStore.config.showDocker
+        case .kiVersions: return configStore.config.showKIVersions
         }
     }
 
@@ -184,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .claudeSessions: configStore.config.showClaudeSessions = value
         case .calendar: configStore.config.showCalendar = value
         case .docker: configStore.config.showDocker = value
+        case .kiVersions: configStore.config.showKIVersions = value
         }
     }
 
