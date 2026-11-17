@@ -175,7 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: return configStore.config.showLauncher
         case .weather: return configStore.config.showWeather
         case .claude: return configStore.config.showClaudeUsage
-        case .claudeSessions: return configStore.config.showClaudeSessions
+        case .claudeSessions: return configStore.config.showClaudeSessions && !configStore.config.showBamboo
         case .calendar: return configStore.config.showCalendar
         case .docker: return configStore.config.showDocker
         case .bamboo: return configStore.config.showBamboo
