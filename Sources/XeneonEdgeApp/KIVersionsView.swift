@@ -210,13 +210,13 @@ struct KIVersionRingView: View {
                                        released: version.released, today: today)
         return VStack(spacing: 3) {
             timelineBar(t)
-                .frame(width: diameter, height: 6)
+                .frame(height: 6)
             HStack(spacing: 4) {
                 Text(t.text)
                     .font(.system(size: 11))
                     .foregroundColor(textColor(t.state))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize()
                 Spacer(minLength: 0)
                 if let date = version.releaseDate, let short = Self.shortDate(date) {
                     Text(short)
@@ -226,9 +226,13 @@ struct KIVersionRingView: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: diameter)
         }
+        // Mindestens so breit, dass "12 Tage ueberfaellig" samt Datum ohne
+        // Kuerzung passt, auch wenn der Ring klein ist; die Zelle begrenzt.
+        .frame(width: max(diameter, Self.timelineMinWidth))
     }
+
+    private static let timelineMinWidth: CGFloat = 160
 
     @ViewBuilder private func timelineBar(_ t: KIVersionTimeline) -> some View {
         switch t.state {
