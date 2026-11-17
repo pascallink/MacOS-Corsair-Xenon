@@ -32,10 +32,17 @@ struct KIVersionRingsView: View {
     private static let legendGap: CGFloat = 8
     private static let rowGap: CGFloat = 10
     private static let cellGap: CGFloat = 8
-    /// Platz unter dem Ring: Label, Issues, Zeitstrahl samt Text und Abstaende.
-    static let captionHeight: CGFloat = 68
-    private static let minDiameter: CGFloat = 80
-    private static let maxDiameter: CGFloat = 220
+    /// Platz unter dem Ring bei Schriftfaktor 1: Label, Issues, Zeitstrahl
+    /// samt Text und Abstaende. Waechst mit `captionScale`.
+    static let captionHeight: CGFloat = 76
+    private static let minDiameter: CGFloat = 40
+    private static let maxDiameter: CGFloat = 300
+
+    /// Schriftfaktor der Beschriftung: ab 140 pt Ring waechst sie mit, damit
+    /// sie neben grossen Ringen lesbar bleibt, hoechstens auf das 1,6-Fache.
+    static func captionScale(diameter: CGFloat) -> CGFloat {
+        min(max(diameter / 140, 1), 1.6)
+    }
 
     /// Reihen in Reihenfolge der konfigurierten Projekte, Projekte ohne
     /// Version entfallen; unbekannte Projekte folgen am Ende.
@@ -89,7 +96,10 @@ struct KIVersionRingsView: View {
         guard !rows.isEmpty else { return minDiameter }
         let count = CGFloat(rows.count)
         let rowHeight = (size.height - rowGap * (count - 1)) / count
-        let byHeight = rowHeight - captionHeight
+        // Die Beschriftung waechst mit dem Ring: erst mit Faktor 1 schaetzen,
+        // dann mit dem Faktor des geschaetzten Rings nachrechnen.
+        let first = rowHeight - captionHeight
+        let byHeight = rowHeight - captionHeight * captionScale(diameter: first)
         let widest = CGFloat(rows.max() ?? 1)
         let byWidth = (size.width - cellGap * (widest - 1)) / widest - cellGap
         return min(max(min(byHeight, byWidth), minDiameter), maxDiameter)
@@ -149,6 +159,8 @@ struct KIVersionRingView: View {
     /// "100%" ist etwa 3,3 Schriftgroessen breit und 1,2 hoch; 0,27 * Feld
     /// laesst dem Text im Kreis Rand.
     private var centerFont: CGFloat { innerField * 0.27 }
+    /// Schriftfaktor der Beschriftung, passend zur Hoehenrechnung der Reihen.
+    private var scale: CGFloat { KIVersionRingsView.captionScale(diameter: diameter) }
 
     var body: some View {
         VStack(spacing: 3) {
@@ -175,12 +187,12 @@ struct KIVersionRingView: View {
             }
             .frame(width: diameter, height: diameter)
             Text(version.label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13 * scale, weight: .semibold))
                 .foregroundColor(EdgeTheme.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text("\(version.total) Issues")
-                .font(.system(size: 10))
+                .font(.system(size: 10 * scale))
                 .foregroundColor(EdgeTheme.textSecondary)
                 .lineLimit(1)
             timeline
@@ -210,17 +222,17 @@ struct KIVersionRingView: View {
                                        released: version.released, today: today)
         return VStack(spacing: 3) {
             timelineBar(t)
-                .frame(height: 6)
+                .frame(height: 6 * scale)
             HStack(spacing: 4) {
                 Text(t.text)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11 * scale))
                     .foregroundColor(textColor(t.state))
                     .lineLimit(1)
                     .fixedSize()
                 Spacer(minLength: 0)
                 if let date = version.releaseDate, let short = Self.shortDate(date) {
                     Text(short)
-                        .font(.system(size: 10))
+                        .font(.system(size: 10 * scale))
                         .monospacedDigit()
                         .foregroundColor(EdgeTheme.textSecondary)
                         .lineLimit(1)
@@ -229,7 +241,7 @@ struct KIVersionRingView: View {
         }
         // Hoechstens so breit, dass "12 Tage ueberfaellig" samt Datum auch
         // unter einem kleinen Ring passt; bei schmaler Zelle schrumpft sie mit.
-        .frame(minWidth: 0, maxWidth: max(diameter, Self.timelineMinWidth))
+        .frame(minWidth: 0, maxWidth: max(diameter, Self.timelineMinWidth * scale))
     }
 
     private static let timelineMinWidth: CGFloat = 160

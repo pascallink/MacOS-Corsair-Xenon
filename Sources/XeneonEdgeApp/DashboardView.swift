@@ -46,19 +46,21 @@ struct DashboardView: View {
                     }
                     .frame(maxWidth: geo.size.width * (compact ? 0.30 : 0.24))
                 }
-                if configStore.config.showStats {
-                    StatsPanel()
+                // Bamboo steht unter dem System-Panel, damit die rechte Spalte
+                // den Versionsringen die volle Hoehe laesst.
+                if configStore.config.showStats || configStore.config.showBamboo {
+                    VStack(spacing: 16) {
+                        if configStore.config.showStats { StatsPanel() }
+                        if configStore.config.showBamboo { BambooPanel() }
+                    }
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
                     || configStore.config.showClaudeUsage
-                    || configStore.config.showBamboo
-                    || configStore.config.showClaudeSessions {
+                    || (configStore.config.showClaudeSessions && !configStore.config.showBamboo) {
                     VStack(spacing: 16) {
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
-                        if configStore.config.showBamboo {
-                            BambooPanel()
-                        } else if configStore.config.showClaudeSessions {
+                        if configStore.config.showClaudeSessions && !configStore.config.showBamboo {
                             ClaudeSessionsPanel()
                         }
                         if configStore.config.showVolume { VolumePanel() }
