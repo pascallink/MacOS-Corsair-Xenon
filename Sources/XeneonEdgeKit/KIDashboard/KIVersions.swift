@@ -117,7 +117,7 @@ public enum KIVersionsParser {
         return KIVersionRing(
             id: id, project: project, name: nonEmptyString(dict["name"]) ?? label, label: label,
             releaseDate: nonEmptyString(dict["releaseDate"]),
-            released: (dict["released"] as? Bool) ?? false,
+            released: bool(dict["released"]) ?? false,
             total: total, areas: areas, scorePercent: scorePercent)
     }
 
@@ -134,5 +134,11 @@ public enum KIVersionsParser {
         let d = n.doubleValue
         guard d >= 0, d == d.rounded(), d < 1e15 else { return nil }
         return Int(d)
+    }
+
+    /// Nur echtes JSON-Bool, nie 0 oder 1 als Zahl (Darwin bruecken sie sonst zu Bool).
+    private static func bool(_ value: Any?) -> Bool? {
+        guard let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        return n.boolValue
     }
 }
