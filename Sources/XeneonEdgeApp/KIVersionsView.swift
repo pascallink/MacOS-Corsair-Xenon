@@ -36,9 +36,10 @@ struct KIVersionRingsView: View {
     private static let maxDiameter: CGFloat = 400
     /// Abstand zwischen Ring und Beschriftung rechts daneben.
     static let captionGap: CGFloat = 14
-    /// Beschriftung rechts: 75 % des Durchmessers, mindestens 170 pt.
+    /// Beschriftung rechts: 170 pt beim Schriftfaktor 1, waechst mit der
+    /// Schrift, damit "12 Tage ueberfaellig" samt Datum auch gross passt.
     static func captionWidth(diameter: CGFloat) -> CGFloat {
-        max(170, diameter * 0.75)
+        170 * captionScale(diameter: diameter)
     }
 
     /// Schriftfaktor der Beschriftung: ab 140 pt Ring waechst sie mit, damit
@@ -102,11 +103,23 @@ struct KIVersionRingsView: View {
         let byHeight = (size.height - rowGap * (count - 1)) / count
         let widest = CGFloat(rows.max() ?? 1)
         let cell = (size.width - cellGap * (widest - 1)) / widest
-        // Zelle = Ring + Abstand + max(170, 0,75 * Ring): zuerst mit dem
-        // Anteil rechnen, die Mindestbreite der Beschriftung zieht danach ab.
-        let proportional = (cell - captionGap) / 1.75
-        let byWidth = cell - captionGap - captionWidth(diameter: proportional)
-        return min(max(min(byHeight, byWidth), minDiameter), maxDiameter)
+        // Groesster Ring, bei dem Ring + Abstand + Beschriftung in die Zelle
+        // passen. Die Beschriftung waechst mit dem Ring, daher Bisektion; die
+        // Bedingung ist monoton steigend im Durchmesser.
+        func fits(_ d: CGFloat) -> Bool { d + captionGap + captionWidth(diameter: d) <= cell }
+        var low: CGFloat = 0
+        var high = max(0, min(byHeight, maxDiameter))
+        if fits(high) {
+            low = high
+        } else {
+            for _ in 0..<20 {
+                let mid = (low + high) / 2
+                if fits(mid) { low = mid } else { high = mid }
+            }
+        }
+        // Unter dem Minimum schrumpft die Beschriftung mit der Zelle, statt
+        // den Ring weiter zu verkleinern.
+        return min(max(low, minDiameter), maxDiameter)
     }
 
     private var legend: some View {
@@ -163,7 +176,7 @@ struct KIVersionRingView: View {
     /// "100%" ist etwa 3,3 Schriftgroessen breit und 1,2 hoch; 0,27 * Feld
     /// laesst dem Text im Kreis Rand.
     private var centerFont: CGFloat { innerField * 0.27 }
-    /// Schriftfaktor der Beschriftung, passend zur Hoehenrechnung der Reihen.
+    /// Schriftfaktor der Beschriftung, gleich dem in `captionWidth`.
     private var scale: CGFloat { KIVersionRingsView.captionScale(diameter: diameter) }
 
     var body: some View {
@@ -181,33 +194,35 @@ struct KIVersionRingView: View {
                     .lineLimit(1)
                 timeline
             }
-            .frame(width: KIVersionRingsView.captionWidth(diameter: diameter), alignment: .leading)
+            // Hoechstens die berechnete Breite; ist die Zelle schmaler (Ring am
+            // Minimum), schrumpft die Spalte und ueberdeckt keine Nachbarzelle.
+            .frame(maxWidth: KIVersionRingsView.captionWidth(diameter: diameter), alignment: .leading)
         }
     }
 
     private var ring: some View {
-            ZStack {
-                let fractions = version.fractions
-                ForEach(Array(version.areas.enumerated()), id: \.offset) { index, entry in
-                    let inset = stroke / 2 + CGFloat(index) * step
-                    ZStack {
-                        Circle()
-                            .trim(from: 0, to: 0.75)
-                            .stroke(Color.white.opacity(0.10),
-                                    style: StrokeStyle(lineWidth: stroke, lineCap: .round))
-                            .rotationEffect(.degrees(135))
-                        Circle()
-                            .trim(from: 0, to: 0.75 * fractions[index])
-                            .stroke(kiAreaColor(entry.area),
-                                    style: StrokeStyle(lineWidth: stroke, lineCap: .round))
-                            .rotationEffect(.degrees(135))
-                            .animation(.easeOut(duration: 0.4), value: fractions[index])
-                    }
-                    .padding(inset)
+        ZStack {
+            let fractions = version.fractions
+            ForEach(Array(version.areas.enumerated()), id: \.offset) { index, entry in
+                let inset = stroke / 2 + CGFloat(index) * step
+                ZStack {
+                    Circle()
+                        .trim(from: 0, to: 0.75)
+                        .stroke(Color.white.opacity(0.10),
+                                style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                        .rotationEffect(.degrees(135))
+                    Circle()
+                        .trim(from: 0, to: 0.75 * fractions[index])
+                        .stroke(kiAreaColor(entry.area),
+                                style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                        .rotationEffect(.degrees(135))
+                        .animation(.easeOut(duration: 0.4), value: fractions[index])
                 }
-                center
+                .padding(inset)
             }
-            .frame(width: diameter, height: diameter)
+            center
+        }
+        .frame(width: diameter, height: diameter)
     }
 
     @ViewBuilder private var center: some View {
@@ -234,23 +249,32 @@ struct KIVersionRingView: View {
         return VStack(spacing: 4 * scale) {
             timelineBar(t)
                 .frame(height: 6 * scale)
-            HStack(spacing: 4) {
-                Text(t.text)
-                    .font(.system(size: 12 * scale))
-                    .foregroundColor(textColor(t.state))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
-                if let date = version.releaseDate, let short = Self.shortDate(date) {
-                    Text(short)
-                        .font(.system(size: 11 * scale))
-                        .monospacedDigit()
-                        .foregroundColor(EdgeTheme.textSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
+            // Ohne Verkleinern der Schrift: passt die Zeile samt Datum nicht in
+            // die Spalte, entfaellt das Datum.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) {
+                    daysText(t)
+                    Spacer(minLength: 8)
+                    if let date = version.releaseDate, let short = Self.shortDate(date) {
+                        Text(short)
+                            .font(.system(size: 11 * scale))
+                            .monospacedDigit()
+                            .foregroundColor(EdgeTheme.textSecondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
                 }
+                daysText(t)
             }
         }
+    }
+
+    private func daysText(_ t: KIVersionTimeline) -> some View {
+        Text(t.text)
+            .font(.system(size: 12 * scale))
+            .foregroundColor(textColor(t.state))
+            .lineLimit(1)
+            .fixedSize()
     }
 
     @ViewBuilder private func timelineBar(_ t: KIVersionTimeline) -> some View {
