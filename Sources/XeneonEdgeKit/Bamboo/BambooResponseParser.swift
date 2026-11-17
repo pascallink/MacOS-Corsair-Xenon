@@ -3,13 +3,15 @@
 //
 // Reines Parsen der Bamboo-REST-Antworten, ohne Netz.
 //
-// ANNAHMEN: Die Feldnamen stammen aus der Bamboo-REST-Doku und sind nicht am
-// Server verifiziert (es stand kein Token zur Verfuegung). Deshalb wird
-// tolerant gelesen:
+// FELDNAMEN: Am 2026-11-17 am Server bestaetigt. Gelesen wird tolerant:
 // - result/{planKey}.json?expand=results.result:
 //   {"results":{"result":[{lifeCycleState, buildState, buildDuration (ms),
-//   buildDurationInSeconds, buildCompletedTime (ISO 8601)}]}}
+//   buildDurationInSeconds, buildCompletedTime}]}}
+//   buildCompletedTime im Format "2026-11-17T20:56:13.651+01:00".
 // - plan/{planKey}/branch.json: {"branches":{"branch":[{key, enabled}]}}
+//   Deaktivierte Branches (enabled == false) bleiben drin: Bamboo
+//   deaktiviert Branch-Plaene nach dem Merge, ihre Builds gehoeren trotzdem
+//   in die Statistik (DMCUBE: 101 von 135 Builds im Fenster).
 // - Zeiten mit oder ohne Bruchteile, Offset mit oder ohne Doppelpunkt.
 // - Eintraege mit fehlenden oder unlesbaren Pflichtfeldern fliegen raus,
 //   kaputtes JSON ergibt eine leere Liste.
@@ -51,7 +53,6 @@ public enum BambooResponseParser {
               let entries = branches["branch"] as? [[String: Any]] else { return [] }
 
         return entries.compactMap { entry in
-            if let enabled = entry["enabled"] as? Bool, !enabled { return nil }
             guard let key = entry["key"] as? String, !key.isEmpty else { return nil }
             return key
         }

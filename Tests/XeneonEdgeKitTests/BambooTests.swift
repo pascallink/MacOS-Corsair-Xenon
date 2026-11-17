@@ -153,7 +153,7 @@ private struct FixedBambooToken: BambooTokenSource {
         #expect(BambooResponseParser.parseBranchKeys(junk).isEmpty)
     }
 
-    @Test("branch keys skip disabled and empty keys")
+    @Test("branch keys keep disabled branches and skip empty keys")
     func branchKeys() {
         let data = Self.branches([
             ["key": "A-B1", "enabled": true],
@@ -161,7 +161,7 @@ private struct FixedBambooToken: BambooTokenSource {
             ["key": "A-B3"],
             ["key": ""],
         ])
-        #expect(BambooResponseParser.parseBranchKeys(data) == ["A-B1", "A-B3"])
+        #expect(BambooResponseParser.parseBranchKeys(data) == ["A-B1", "A-B2", "A-B3"])
     }
 
     // MARK: Statistik
