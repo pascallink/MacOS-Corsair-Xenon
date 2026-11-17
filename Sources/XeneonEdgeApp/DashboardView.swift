@@ -172,7 +172,7 @@ struct StatsPanel: View {
                               legend: stats.snapshot.diskHighlight.map {
                                   "\($0.name) \(ByteFormatter.size($0.usage.used))"
                               })
-                    ForEach(stats.snapshot.extraDisks, id: \.name) { disk in
+                    ForEach(Array(stats.snapshot.extraDisks.enumerated()), id: \.offset) { _, disk in
                         GaugeView(label: "\(disk.name) · \(ByteFormatter.size(disk.usage.available)) frei",
                                   value: disk.usage.usage,
                                   text: String(format: "%.0f%%", disk.usage.usage * 100))
