@@ -107,6 +107,12 @@ public struct AppConfig: Codable, Equatable {
     /// System-Panel, nur solange gemountet.
     public var extraDiskVolumes: [String] = []
 
+    /// Ring "Docker" im System-Panel (RAM der Container, Platz im Disk-Image).
+    /// Er erscheint nur, solange Docker laeuft.
+    public var showDocker = false
+    /// Pfad des Docker-Disk-Images; leer = Docker-Desktop-Default.
+    public var dockerDiskImagePath = ""
+
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
     public var weatherLongitude: Double = 13.405
@@ -169,6 +175,8 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
         diskHighlightVolume = try c.decodeIfPresent(String.self, forKey: .diskHighlightVolume) ?? d.diskHighlightVolume
         extraDiskVolumes = try c.decodeIfPresent([String].self, forKey: .extraDiskVolumes) ?? d.extraDiskVolumes
+        showDocker = try c.decodeIfPresent(Bool.self, forKey: .showDocker) ?? d.showDocker
+        dockerDiskImagePath = try c.decodeIfPresent(String.self, forKey: .dockerDiskImagePath) ?? d.dockerDiskImagePath
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
