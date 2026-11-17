@@ -99,6 +99,22 @@ public struct AppConfig: Codable, Equatable {
     /// Chats untouched for longer than this many hours drop off the list.
     public var claudeSessionOpenHours: Double = 12
 
+    /// Panel "Bamboo-Laufzeiten": durchschnittliche Laufzeit und Erfolgsquote
+    /// je Plan. Teilt sich den Platz mit `showClaudeSessions`, Bamboo hat
+    /// Vorrang (setzt die App um).
+    public var showBamboo = true
+    /// Basis-URL des Bamboo-Servers (intern nur per http erreichbar). Das
+    /// Token kommt aus der Keychain, nie aus dieser Datei.
+    public var bambooBaseURL = "http://bamboo.inxire.com"
+    /// Ausgewertete Plaene, in Anzeigereihenfolge.
+    public var bambooPlans: [BambooPlan] = BambooPlan.defaultPlans
+    /// Builds der Branch-Plaene mitzaehlen.
+    public var bambooIncludeBranches = true
+    /// Zeitfenster der Auswertung in Tagen.
+    public var bambooWindowDays = 14
+    /// Abrufintervall in Minuten; die App klemmt auf >= 5.
+    public var bambooRefreshMinutes: Double = 60
+
     /// Mountpunkt eines APFS-Volumes im Boot-Container (z. B.
     /// "/Volumes/Sources"), dessen Eigenverbrauch der SSD-Ring als zweites
     /// Segment zeigt. Leer = aus.
@@ -173,6 +189,12 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionRows = try c.decodeIfPresent(Int.self, forKey: .claudeSessionRows) ?? d.claudeSessionRows
         claudeSessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .claudeSessionActiveSeconds) ?? d.claudeSessionActiveSeconds
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
+        showBamboo = try c.decodeIfPresent(Bool.self, forKey: .showBamboo) ?? d.showBamboo
+        bambooBaseURL = try c.decodeIfPresent(String.self, forKey: .bambooBaseURL) ?? d.bambooBaseURL
+        bambooPlans = try c.decodeIfPresent([BambooPlan].self, forKey: .bambooPlans) ?? d.bambooPlans
+        bambooIncludeBranches = try c.decodeIfPresent(Bool.self, forKey: .bambooIncludeBranches) ?? d.bambooIncludeBranches
+        bambooWindowDays = try c.decodeIfPresent(Int.self, forKey: .bambooWindowDays) ?? d.bambooWindowDays
+        bambooRefreshMinutes = try c.decodeIfPresent(Double.self, forKey: .bambooRefreshMinutes) ?? d.bambooRefreshMinutes
         diskHighlightVolume = try c.decodeIfPresent(String.self, forKey: .diskHighlightVolume) ?? d.diskHighlightVolume
         extraDiskVolumes = try c.decodeIfPresent([String].self, forKey: .extraDiskVolumes) ?? d.extraDiskVolumes
         showDocker = try c.decodeIfPresent(Bool.self, forKey: .showDocker) ?? d.showDocker
