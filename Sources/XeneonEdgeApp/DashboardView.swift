@@ -591,11 +591,18 @@ struct ClaudeUsagePanel: View {
     }
 
     var body: some View {
-        Panel(title: "Claude", systemImage: "gauge.with.needle") {
-            if claude.isMultiProfile {
-                profileList
-            } else {
-                singleProfile
+        if showVersions {
+            // Nur die Versionsringe, ohne Session-Teil.
+            Panel(title: "Fix-Versionen", systemImage: "chart.pie") {
+                KIVersionRingsView()
+            }
+        } else {
+            Panel(title: "Claude", systemImage: "gauge.with.needle") {
+                if claude.isMultiProfile {
+                    profileList
+                } else {
+                    singleProfile
+                }
             }
         }
     }
@@ -611,7 +618,6 @@ struct ClaudeUsagePanel: View {
             ForEach(claude.profileUsages) { usage in
                 profileRow(usage)
             }
-            if showVersions { KIVersionRingsView() }
         }
     }
 
@@ -816,13 +822,9 @@ struct ClaudeUsagePanel: View {
                 }
                 Spacer(minLength: 0)
             }
-            if showVersions {
-                KIVersionRingsView()
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(claudeLimitRows(for: claude.snapshot)) { row in
-                        claudeLimitRowView(row)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(claudeLimitRows(for: claude.snapshot)) { row in
+                    claudeLimitRowView(row)
                 }
             }
         }
