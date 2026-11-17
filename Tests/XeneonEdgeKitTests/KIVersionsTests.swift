@@ -209,7 +209,7 @@ private final class StubProtocol: URLProtocol {
     @Test func oldConfigGetsDefaults() throws {
         let c = try JSONDecoder().decode(AppConfig.self, from: data(#"{"showClock":false}"#))
         #expect(c.showKIVersions == true)
-        #expect(c.kiDashboardURL == "http://127.0.0.1:3001")
+        #expect(c.kiDashboardURL == "http://127.0.0.1:3000")
         #expect(c.kiDashboardProjects == ["DBREFI", "DBCUBE"])
         let set = try JSONDecoder().decode(AppConfig.self, from: data(#"{"showKIVersions":false,"kiDashboardURL":"http://x:3000","kiDashboardProjects":["DBCUBE"]}"#))
         #expect(set.showKIVersions == false && set.kiDashboardURL == "http://x:3000" && set.kiDashboardProjects == ["DBCUBE"])

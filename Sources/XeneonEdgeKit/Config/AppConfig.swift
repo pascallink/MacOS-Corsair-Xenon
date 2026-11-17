@@ -110,8 +110,9 @@ public struct AppConfig: Codable, Equatable {
     /// Panel "Claude" zeigt statt der Token-Balken die Versionsringe aus dem
     /// KI-Dashboard; aus = alte Balken. Die Token-Budgets bleiben unveraendert.
     public var showKIVersions = true
-    /// Basis-URL des lokalen KI-Dashboards (Docker :3001, lokal :3000).
-    public var kiDashboardURL = "http://127.0.0.1:3001"
+    /// Basis-URL des lokalen KI-Dashboards. Default ist der Node-Betrieb
+    /// (:3000); die Docker-Variante laeuft auf :3001.
+    public var kiDashboardURL = "http://127.0.0.1:3000"
     /// Jira-Projekte, deren Fix-Versionen als Ringe erscheinen (Reihenfolge
     /// wie hier); leer = alle.
     public var kiDashboardProjects: [String] = ["DBREFI", "DBCUBE"]
