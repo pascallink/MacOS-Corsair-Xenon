@@ -140,6 +140,9 @@ public final class DockerStatsReader {
         guard fd >= 0 else { return nil }
         defer { close(fd) }
 
+        // Gesamtfrist: SO_RCVTIMEO gilt nur je read(), ein langsamer Peer
+        // wuerde die Leseschleife sonst bis zum Limit halten.
+        let deadline = Date().addingTimeInterval(timeout)
         var tv = timeval(tv_sec: Int(timeout), tv_usec: 0)
         let tvSize = socklen_t(MemoryLayout<timeval>.size)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, tvSize)
@@ -156,6 +159,8 @@ public final class DockerStatsReader {
             for (i, b) in bytes.enumerated() { dst[i] = b }
             dst[bytes.count] = 0
         }
+        // Unix-Socket-connect blockiert praktisch nicht (lokal, sofort
+        // angenommen oder abgelehnt), daher kein nicht-blockierendes connect.
         let connected = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -175,6 +180,7 @@ public final class DockerStatsReader {
         var chunk = [UInt8](repeating: 0, count: 16 * 1024)
         let limit = 8 * 1024 * 1024
         while response.count < limit {
+            if Date() >= deadline { return nil }
             let n = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if n > 0 { response.append(contentsOf: chunk[0..<n]) } else { break }
         }
