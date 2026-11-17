@@ -96,4 +96,13 @@ import Testing
         #expect(cfg.diskHighlightVolume == "")
         #expect(cfg.extraDiskVolumes.isEmpty)
     }
+
+    @Test func ownUsageIsBoundedByVolumeTotal() throws {
+        // Bewusst nur Grenzen, keine Gleichheit: auf Runnern ohne APFS-
+        // Mehrfachvolumes ist Eigenverbrauch nicht kleiner als die Fuellung.
+        let own = try #require(DiskUsage.ownUsedBytes(ofVolumeAt: "/"))
+        let boot = try #require(DiskUsage.read(volumeAt: "/"))
+        #expect(own > 0)
+        #expect(own <= boot.total)
+    }
 }

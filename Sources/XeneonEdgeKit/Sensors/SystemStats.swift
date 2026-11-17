@@ -100,13 +100,24 @@ public struct DiskUsage: Equatable {
         return info
     }
 
-    /// Eigenverbrauch eines APFS-Volumes in Bytes, (f_blocks - f_bfree) *
-    /// f_bsize. nil, wenn `path` kein Mountpunkt ist.
+    /// Eigenverbrauch eines Volumes in Bytes (ATTR_VOL_SPACEUSED). statfs
+    /// taugt dafuer nicht: auf APFS meldet es (f_blocks - f_bfree) containerweit,
+    /// also fuer jedes Volume denselben Wert. getattrlist liefert den Verbrauch
+    /// des einzelnen Volumes. nil, wenn `path` kein Mountpunkt ist (getattrlist
+    /// meldet sonst das Volume des Ordners).
     public static func ownUsedBytes(ofVolumeAt path: String) -> UInt64? {
-        var fs = statfs()
-        guard mountedInfo(at: path) != nil, statfs(path, &fs) == 0,
-              fs.f_blocks >= fs.f_bfree else { return nil }
-        return (UInt64(fs.f_blocks) - UInt64(fs.f_bfree)) * UInt64(fs.f_bsize)
+        guard mountedInfo(at: path) != nil else { return nil }
+        var attrs = attrlist()
+        attrs.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        attrs.volattr = attrgroup_t(ATTR_VOL_INFO) | attrgroup_t(ATTR_VOL_SPACEUSED)
+        var buf = [UInt8](repeating: 0, count: 64)
+        let result = buf.withUnsafeMutableBytes {
+            getattrlist(path, &attrs, $0.baseAddress, $0.count, 0)
+        }
+        guard result == 0 else { return nil }
+        // Layout: u_int32 Laenge, dann off_t SPACEUSED.
+        let used = buf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt64.self) }
+        return used
     }
 
     /// "/dev/disk3s7" und "/dev/disk3s1s1" -> "disk3"; alles, was kein
