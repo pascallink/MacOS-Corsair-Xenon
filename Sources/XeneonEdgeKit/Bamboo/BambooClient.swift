@@ -43,6 +43,14 @@ public struct BambooClient {
     /// Hoechstzahl Branches je Plan, die abgefragt werden.
     private static let maxBranches = 200
 
+    /// Hoechstzahl Seiten je Plan-Key beim Blaettern.
+    private static let maxPages = 10
+
+    /// Laufzeitdeckel: Sind je Plan (Hauptplan, Branch-Liste und alle Seiten)
+    /// schon so viele Anfragen gestellt, werden keine weiteren Branches mehr
+    /// abgefragt; es zaehlt, was bis dahin gesammelt wurde.
+    private static let maxRequestsPerPlan = 400
+
     public init(baseURL: URL, token: String, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.token = token
@@ -60,31 +68,69 @@ public struct BambooClient {
         return BambooResponseParser.parseBranchKeys(data)
     }
 
-    /// Fertige Builds (nur Finished, Successful/Failed) eines Plan-Keys.
-    public func finishedBuilds(planKey: String, maxResults: Int) async throws -> [BambooBuild] {
-        let url = baseURL.appendingPathComponent("rest/api/latest/result")
-            .appendingPathComponent(planKey + ".json")
-        let data = try await fetch(url, query: [
-            URLQueryItem(name: "expand", value: "results.result"),
-            URLQueryItem(name: "max-results", value: String(maxResults)),
-            URLQueryItem(name: "includeAllStates", value: "false"),
-        ])
-        return BambooResponseParser.parseResults(data)
+    /// Fertige Builds (nur Finished, Successful/Failed) eines Plan-Keys seit
+    /// `since`. Blaettert mit `start-index` in Seiten zu `maxResults`.
+    public func finishedBuilds(planKey: String, maxResults: Int,
+                               since: Date) async throws -> [BambooBuild] {
+        var requests = 0
+        return try await finishedBuilds(planKey: planKey, maxResults: maxResults,
+                                        since: since, requests: &requests)
     }
 
-    /// Builds des Hauptplans, bei `includeBranches` zusaetzlich die jedes
-    /// Branch-Plans. Branches werden nacheinander abgefragt; ein Branch mit
-    /// 404 (inzwischen geloescht) wird uebersprungen, jeder andere Fehler
-    /// bricht ab.
+    /// Wie oben; `requests` zaehlt die gestellten Anfragen mit (auch bei Fehlern).
+    private func finishedBuilds(planKey: String, maxResults: Int, since: Date,
+                                requests: inout Int) async throws -> [BambooBuild] {
+        let url = baseURL.appendingPathComponent("rest/api/latest/result")
+            .appendingPathComponent(planKey + ".json")
+        let pageSize = max(maxResults, 1)
+        var all: [BambooBuild] = []
+
+        for page in 0..<Self.maxPages {
+            requests += 1
+            let data = try await fetch(url, query: [
+                URLQueryItem(name: "expand", value: "results.result"),
+                URLQueryItem(name: "max-results", value: String(pageSize)),
+                URLQueryItem(name: "start-index", value: String(page * pageSize)),
+                URLQueryItem(name: "includeAllStates", value: "false"),
+            ])
+            let parsed = BambooResponseParser.parseResults(data)
+            all += parsed
+
+            // Der Parser filtert nach Status, "Seite voll" zaehlt daher roh.
+            let rawCount = Self.rawResultCount(data)
+            if rawCount < pageSize { break }
+            if let oldest = parsed.map(\.completedAt).min(), oldest < since { break }
+        }
+        return all
+    }
+
+    /// Anzahl der Eintraege in `results.result`, ungefiltert.
+    private static func rawResultCount(_ data: Data) -> Int {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = root["results"] as? [String: Any],
+              let entries = results["result"] as? [Any] else { return 0 }
+        return entries.count
+    }
+
+    /// Builds des Hauptplans seit `since`, bei `includeBranches` zusaetzlich die
+    /// jedes Branch-Plans. Branches werden nacheinander abgefragt; ein Branch
+    /// mit 404 (inzwischen geloescht) wird uebersprungen, jeder andere Fehler
+    /// bricht ab. Ist das Anfragebudget je Plan erreicht, werden keine weiteren
+    /// Branches abgefragt.
     public func builds(for plan: BambooPlan, includeBranches: Bool,
-                       maxResultsPerKey: Int) async throws -> [BambooBuild] {
-        var all = try await finishedBuilds(planKey: plan.key, maxResults: maxResultsPerKey)
+                       maxResultsPerKey: Int, since: Date) async throws -> [BambooBuild] {
+        var requests = 0
+        var all = try await finishedBuilds(planKey: plan.key, maxResults: maxResultsPerKey,
+                                           since: since, requests: &requests)
         guard includeBranches else { return all }
 
+        requests += 1
         let keys = try await branchKeys(planKey: plan.key).prefix(Self.maxBranches)
         for key in keys {
+            guard requests < Self.maxRequestsPerPlan else { break }
             do {
-                all += try await finishedBuilds(planKey: key, maxResults: maxResultsPerKey)
+                all += try await finishedBuilds(planKey: key, maxResults: maxResultsPerKey,
+                                                since: since, requests: &requests)
             } catch BambooError.http(404) {
                 continue
             }
@@ -110,15 +156,22 @@ public struct BambooClient {
         }
 
         let client = BambooClient(baseURL: baseURL, token: token, session: session)
+        let since = start.addingTimeInterval(-Double(max(windowDays, 1)) * 86400)
         var stats: [BambooPlanStats] = []
         var unauthorizedCount = 0
 
         for plan in plans {
+            // Abbruch: bisher Gesammeltes zurueck, ohne Zeitstempel und Fehler.
+            if Task.isCancelled {
+                return BambooSnapshot(plans: stats, updatedAt: nil, error: nil)
+            }
             do {
                 let builds = try await client.builds(for: plan, includeBranches: includeBranches,
-                                                     maxResultsPerKey: 100)
+                                                     maxResultsPerKey: 50, since: since)
                 stats.append(BambooStatistics.evaluate(plan: plan, builds: builds,
                                                        now: now(), windowDays: windowDays))
+            } catch is CancellationError {
+                return BambooSnapshot(plans: stats, updatedAt: nil, error: nil)
             } catch {
                 let bambooError = (error as? BambooError) ?? .transport
                 if bambooError == .unauthorized { unauthorizedCount += 1 }
@@ -150,6 +203,10 @@ public struct BambooClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             // Der Fehler koennte URL und Header tragen - nie mitreichen oder loggen.
             throw BambooError.transport

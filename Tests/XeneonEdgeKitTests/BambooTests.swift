@@ -11,12 +11,14 @@ private final class BambooStubProtocol: URLProtocol {
     static var responseIndex = 0
     static var recordedRequests: [URLRequest] = []
     static var failTransport = false
+    static var transportError = URLError(.notConnectedToInternet)
 
     static func reset() {
         responses = []
         responseIndex = 0
         recordedRequests = []
         failTransport = false
+        transportError = URLError(.notConnectedToInternet)
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -25,7 +27,7 @@ private final class BambooStubProtocol: URLProtocol {
     override func startLoading() {
         Self.recordedRequests.append(request)
         if Self.failTransport {
-            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            client?.urlProtocol(self, didFailWithError: Self.transportError)
             return
         }
         guard Self.responseIndex < Self.responses.count, let url = request.url else {
@@ -229,7 +231,7 @@ private struct FixedBambooToken: BambooTokenSource {
     func requestShape() async throws {
         BambooStubProtocol.reset()
         BambooStubProtocol.responses = [(200, Self.results([Self.result()]))]
-        let builds = try await client().finishedBuilds(planKey: "DMCUBE-DMCUB", maxResults: 100)
+        let builds = try await client().finishedBuilds(planKey: "DMCUBE-DMCUB", maxResults: 100, since: .distantPast)
         #expect(builds.count == 1)
 
         let request = try #require(BambooStubProtocol.recordedRequests.first)
@@ -259,14 +261,14 @@ private struct FixedBambooToken: BambooTokenSource {
     func errorMapping() async {
         BambooStubProtocol.reset()
         BambooStubProtocol.responses = [(401, Data()), (500, Data())]
-        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1) }
+        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1, since: .distantPast) }
         catch { #expect(error as? BambooError == .unauthorized) }
-        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1) }
+        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1, since: .distantPast) }
         catch { #expect(error as? BambooError == .http(500)) }
 
         BambooStubProtocol.reset()
         BambooStubProtocol.failTransport = true
-        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1) }
+        do { _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 1, since: .distantPast) }
         catch {
             #expect(error as? BambooError == .transport)
             #expect(!String(describing: error).contains(Self.token))
@@ -282,7 +284,7 @@ private struct FixedBambooToken: BambooTokenSource {
             (404, Data()),
             (200, Self.results([Self.result(state: "Failed")])),
         ]
-        let builds = try await client().builds(for: Self.plan, includeBranches: true, maxResultsPerKey: 100)
+        let builds = try await client().builds(for: Self.plan, includeBranches: true, maxResultsPerKey: 100, since: .distantPast)
         #expect(builds.map(\.successful) == [true, false])
         #expect(BambooStubProtocol.recordedRequests.count == 4)
     }
@@ -296,7 +298,7 @@ private struct FixedBambooToken: BambooTokenSource {
             (500, Data()),
         ]
         do {
-            _ = try await client().builds(for: Self.plan, includeBranches: true, maxResultsPerKey: 100)
+            _ = try await client().builds(for: Self.plan, includeBranches: true, maxResultsPerKey: 100, since: .distantPast)
             Issue.record("expected error")
         } catch {
             #expect(error as? BambooError == .http(500))
@@ -307,11 +309,79 @@ private struct FixedBambooToken: BambooTokenSource {
     func noBranches() async throws {
         BambooStubProtocol.reset()
         BambooStubProtocol.responses = [(200, Self.results([Self.result()]))]
-        _ = try await client().builds(for: Self.plan, includeBranches: false, maxResultsPerKey: 100)
+        _ = try await client().builds(for: Self.plan, includeBranches: false, maxResultsPerKey: 100, since: .distantPast)
         #expect(BambooStubProtocol.recordedRequests.count == 1)
     }
 
+    private static func fullPage(_ count: Int, completed: String = "2026-11-13T02:41:12+01:00") -> Data {
+        results(Array(repeating: result(extra: ["buildCompletedTime": completed]), count: count))
+    }
+
+    private func startIndexes() -> [String] {
+        BambooStubProtocol.recordedRequests.map { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "start-index" }?.value ?? ""
+        }
+    }
+
+    @Test("pages through full pages until a short one")
+    func paginates() async throws {
+        BambooStubProtocol.reset()
+        BambooStubProtocol.responses = [
+            (200, Self.fullPage(50)), (200, Self.fullPage(50)), (200, Self.fullPage(10)),
+        ]
+        let since = ISO8601DateFormatter().date(from: "2026-11-01T00:00:00+01:00")!
+        let builds = try await client().finishedBuilds(planKey: "A-B", maxResults: 50, since: since)
+        #expect(builds.count == 110)
+        #expect(startIndexes() == ["0", "50", "100"])
+    }
+
+    @Test("stops when the oldest build of a page is before since")
+    func stopsBeforeSince() async throws {
+        BambooStubProtocol.reset()
+        BambooStubProtocol.responses = [
+            (200, Self.fullPage(50)), (200, Self.fullPage(50, completed: "2026-10-01T02:41:12+01:00")),
+            (200, Self.fullPage(50)),
+        ]
+        let since = ISO8601DateFormatter().date(from: "2026-11-01T00:00:00+01:00")!
+        _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 50, since: since)
+        #expect(startIndexes() == ["0", "50"])
+    }
+
+    @Test("page count is counted raw, not after status filter")
+    func rawPageCount() async throws {
+        BambooStubProtocol.reset()
+        let mixed = Self.results(
+            Array(repeating: Self.result(), count: 2) + [Self.result(life: "InProgress")])
+        BambooStubProtocol.responses = [(200, mixed), (200, Self.results([]))]
+        _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 3, since: .distantPast)
+        #expect(startIndexes() == ["0", "3"])
+    }
+
+    @Test("page limit of 10 ends paging")
+    func pageLimit() async throws {
+        BambooStubProtocol.reset()
+        BambooStubProtocol.responses = Array(repeating: (200, Self.fullPage(5)), count: 15)
+        _ = try await client().finishedBuilds(planKey: "A-B", maxResults: 5, since: .distantPast)
+        #expect(BambooStubProtocol.recordedRequests.count == 10)
+    }
+
     // MARK: Snapshot
+
+    @Test("cancelled request is no transport error and ends the snapshot")
+    func snapshotCancelled() async {
+        BambooStubProtocol.reset()
+        BambooStubProtocol.failTransport = true
+        BambooStubProtocol.transportError = URLError(.cancelled)
+        let snapshot = await BambooClient.snapshot(
+            plans: [Self.plan, Self.extPlan], baseURL: Self.base,
+            tokenSource: FixedBambooToken(value: Self.token), includeBranches: false,
+            windowDays: 14, session: makeSession())
+        #expect(snapshot.updatedAt == nil)
+        #expect(snapshot.error == nil)
+        #expect(snapshot.plans.allSatisfy { $0.error != BambooError.transport.description })
+        #expect(BambooStubProtocol.recordedRequests.count == 1)
+    }
 
     @Test("snapshot without token sends no request")
     func snapshotWithoutToken() async {
