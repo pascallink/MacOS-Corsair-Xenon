@@ -93,6 +93,53 @@ final class StatsModel: ObservableObject {
     }
 }
 
+// MARK: - Docker
+
+/// Docker-Werte fuer den Ring im System-Panel. Gelesen wird auf einer eigenen
+/// seriellen Queue (der Socket-Zugriff blockiert), veroeffentlicht auf Main.
+final class DockerModel: ObservableObject {
+    @Published var usage: DockerUsage?
+
+    private let queue = DispatchQueue(label: "xeneonedge.docker", qos: .utility)
+    private var timer: Timer?
+    private var reader = DockerStatsReader()
+    private var readInFlight = false
+
+    /// Leerer `diskImagePath` nimmt den Default des Readers. Wiederholte
+    /// Aufrufe starten den Timer neu, damit ein geaenderter Pfad greift.
+    func start(diskImagePath: String) {
+        timer?.invalidate()
+        reader = diskImagePath.isEmpty
+            ? DockerStatsReader()
+            : DockerStatsReader(diskImagePath: diskImagePath)
+        poll()
+        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        usage = nil
+    }
+
+    private func poll() {
+        guard !readInFlight else { return }
+        readInFlight = true
+        let reader = self.reader
+        queue.async { [weak self] in
+            let result = reader.read()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.readInFlight = false
+                // Nach stop() ankommende Ergebnisse verwerfen.
+                if self.timer != nil { self.usage = result }
+            }
+        }
+    }
+}
+
 // MARK: - Media
 
 final class MediaModel: ObservableObject {

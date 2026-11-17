@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker
 
     var title: String {
         switch self {
@@ -23,6 +23,7 @@ private enum WidgetToggle: Int, CaseIterable {
         case .claude: return "Claude-Nutzung"
         case .claudeSessions: return "Claude-Chats"
         case .calendar: return "Termine"
+        case .docker: return "Docker (im System-Panel)"
         }
     }
 }
@@ -37,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let claudeModel = ClaudeUsageModel()
     private let claudeSessionsModel = ClaudeSessionsModel()
     private let agendaModel = AgendaModel()
+    private let dockerModel = DockerModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -76,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(claudeModel)
             .environmentObject(claudeSessionsModel)
             .environmentObject(agendaModel)
+            .environmentObject(dockerModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -142,6 +145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             weatherModel.stop()
         }
+        if configStore.config.showDocker {
+            dockerModel.start(diskImagePath: configStore.config.dockerDiskImagePath)
+        } else {
+            dockerModel.stop()
+        }
         if configStore.config.showCalendar {
             agendaModel.start()
         } else {
@@ -160,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .claude: return configStore.config.showClaudeUsage
         case .claudeSessions: return configStore.config.showClaudeSessions
         case .calendar: return configStore.config.showCalendar
+        case .docker: return configStore.config.showDocker
         }
     }
 
@@ -174,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .claude: configStore.config.showClaudeUsage = value
         case .claudeSessions: configStore.config.showClaudeSessions = value
         case .calendar: configStore.config.showCalendar = value
+        case .docker: configStore.config.showDocker = value
         }
     }
 

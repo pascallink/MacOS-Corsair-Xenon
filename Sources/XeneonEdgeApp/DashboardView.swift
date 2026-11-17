@@ -151,11 +151,13 @@ struct ClockPanel: View {
 
 struct StatsPanel: View {
     @EnvironmentObject var stats: StatsModel
+    @EnvironmentObject var docker: DockerModel
+    @EnvironmentObject var configStore: ConfigStore
 
     var body: some View {
         Panel(title: "System", systemImage: "gauge.medium") {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: stats.snapshot.extraDisks.isEmpty ? 24 : 14) {
+                HStack(spacing: stats.snapshot.extraDisks.isEmpty && dockerUsage == nil ? 24 : 14) {
                     GaugeView(label: "CPU",
                               value: stats.snapshot.cpuUsage,
                               text: String(format: "%.0f%%", stats.snapshot.cpuUsage * 100))
@@ -175,6 +177,14 @@ struct StatsPanel: View {
                                   value: disk.usage.usage,
                                   text: String(format: "%.0f%%", disk.usage.usage * 100))
                     }
+                    if let usage = dockerUsage {
+                        DualGaugeView(label: "Docker",
+                                      outer: usage.memoryUsage,
+                                      inner: usage.diskUsage,
+                                      text: String(format: "%.0f%%", usage.memoryUsage * 100),
+                                      outerDetail: "RAM \(ByteFormatter.size(usage.memoryUsed))/\(ByteFormatter.size(usage.memoryTotal))",
+                                      innerDetail: "Disk \(ByteFormatter.size(usage.diskUsed))/\(ByteFormatter.size(usage.diskTotal))")
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         NetworkRow(symbol: "arrow.down",
                                    text: ByteFormatter.rate(stats.snapshot.networkRxBytesPerSecond))
@@ -189,6 +199,63 @@ struct StatsPanel: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 70)
             }
+        }
+    }
+}
+
+extension StatsPanel {
+    /// Docker-Werte nur, wenn der Ring an ist und Docker antwortet.
+    var dockerUsage: DockerUsage? {
+        configStore.config.showDocker ? docker.usage : nil
+    }
+}
+
+/// Ring mit zwei konzentrischen Spuren: aussen RAM, innen Disk-Image.
+struct DualGaugeView: View {
+    let label: String
+    let outer: Double // 0...1
+    let inner: Double // 0...1
+    let text: String
+    let outerDetail: String
+    let innerDetail: String
+
+    private func track(_ value: Double, color: Color, inset: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(135))
+            Circle()
+                .trim(from: 0, to: 0.75 * min(max(value, 0), 1))
+                .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(135))
+                .animation(.easeOut(duration: 0.4), value: value)
+        }
+        .padding(inset)
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                track(outer, color: EdgeTheme.accent, inset: 0)
+                track(inner, color: EdgeTheme.highlight, inset: 13)
+                Text(text)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textPrimary)
+                    .minimumScaleFactor(0.5)
+            }
+            .frame(width: 110, height: 110)
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(EdgeTheme.textSecondary)
+            VStack(spacing: 1) {
+                Text(outerDetail).foregroundColor(EdgeTheme.accent)
+                Text(innerDetail).foregroundColor(EdgeTheme.highlight)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
         }
     }
 }
