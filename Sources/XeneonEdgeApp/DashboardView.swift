@@ -32,6 +32,10 @@ struct DashboardView: View {
     @EnvironmentObject var claudeSessions: ClaudeSessionsModel
     @EnvironmentObject var agenda: AgendaModel
 
+    private var showsVersionRings: Bool {
+        configStore.config.showClaudeUsage && configStore.config.showKIVersions
+    }
+
     var body: some View {
         GeometryReader { geo in
             let compact = geo.size.width < 1600
@@ -65,7 +69,9 @@ struct DashboardView: View {
                         }
                         if configStore.config.showVolume { VolumePanel() }
                     }
-                    .frame(maxWidth: geo.size.width * 0.26)
+                    // Die Versionsringe tragen ihre Beschriftung rechts neben
+                    // dem Ring und brauchen deshalb mehr Breite.
+                    .frame(maxWidth: geo.size.width * (showsVersionRings ? 0.40 : 0.26))
                 }
                 if configStore.config.showLauncher {
                     LauncherPanel()
