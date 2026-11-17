@@ -115,9 +115,18 @@ public struct DiskUsage: Equatable {
             getattrlist(path, &attrs, $0.baseAddress, $0.count, 0)
         }
         guard result == 0 else { return nil }
-        // Layout: u_int32 Laenge, dann off_t SPACEUSED.
-        let used = buf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt64.self) }
-        return used
+        return spaceUsed(fromAttrBuffer: buf)
+    }
+
+    /// Wertet die getattrlist-Antwort aus. Layout: u_int32 Laenge, dann off_t
+    /// SPACEUSED. nil, wenn die gelieferte Laenge kleiner als 12 Byte ist oder
+    /// der Puffer kuerzer als die gemeldete Laenge.
+    static func spaceUsed(fromAttrBuffer buf: [UInt8]) -> UInt64? {
+        let needed = 4 + MemoryLayout<UInt64>.size
+        guard buf.count >= needed else { return nil }
+        let length = buf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
+        guard Int(length) >= needed, Int(length) <= buf.count else { return nil }
+        return buf.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt64.self) }
     }
 
     /// "/dev/disk3s7" und "/dev/disk3s1s1" -> "disk3"; alles, was kein

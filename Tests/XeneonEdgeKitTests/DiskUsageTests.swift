@@ -50,6 +50,20 @@ import Testing
         #expect(DiskUsage.apfsContainer(ofDevice: "") == nil)
     }
 
+    @Test func attrBufferLengthIsChecked() {
+        func buffer(length: UInt32, used: UInt64) -> [UInt8] {
+            var buf = [UInt8](repeating: 0, count: 64)
+            withUnsafeBytes(of: length) { for i in 0..<4 { buf[i] = $0[i] } }
+            withUnsafeBytes(of: used) { for i in 0..<8 { buf[4 + i] = $0[i] } }
+            return buf
+        }
+        #expect(DiskUsage.spaceUsed(fromAttrBuffer: buffer(length: 12, used: 42)) == 42)
+        #expect(DiskUsage.spaceUsed(fromAttrBuffer: buffer(length: 8, used: 42)) == nil)
+        #expect(DiskUsage.spaceUsed(fromAttrBuffer: buffer(length: 0, used: 0)) == nil)
+        #expect(DiskUsage.spaceUsed(fromAttrBuffer: buffer(length: 200, used: 42)) == nil)
+        #expect(DiskUsage.spaceUsed(fromAttrBuffer: [UInt8](repeating: 0, count: 8)) == nil)
+    }
+
     @Test func unmountedPathIsNotMounted() {
         let missing = "/does/not/exist/\(UUID().uuidString)"
         #expect(DiskUsage.readMounted(at: missing) == nil)
