@@ -564,6 +564,7 @@ final class KIVersionsModel: ObservableObject {
     private var reader: KIVersionsReader?
     private var key: String?
     private var timer: Timer?
+    private var retryTimer: Timer?
     private var nextRun: Date?
     private var fetchInFlight = false
     private var running = false
@@ -576,6 +577,7 @@ final class KIVersionsModel: ObservableObject {
         if running, newKey == key { return }
         timer?.invalidate()
         timer = nil
+        cancelRetry()
         key = newKey
         reader = KIVersionsReader(baseURL: baseURL, projects: projects)
         fetchInFlight = false // Ergebnis des alten Readers wird verworfen
@@ -596,6 +598,7 @@ final class KIVersionsModel: ObservableObject {
         fetchInFlight = false
         timer?.invalidate()
         timer = nil
+        cancelRetry()
         nextRun = nil
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
@@ -641,11 +644,36 @@ final class KIVersionsModel: ObservableObject {
                     self.versions = rings
                     self.lastSuccess = Date()
                     self.errorText = nil
+                    self.cancelRetry()
                 case .failure(let error):
                     self.errorText = Self.text(for: error)
+                    if case .unreachable = error {
+                        self.scheduleRetry()
+                    } else {
+                        self.cancelRetry()
+                    }
                 }
             }
         }
+    }
+
+    /// Startet die App vor dem Dashboard, bliebe das Panel bis zum naechsten
+    /// Zeitplan-Slot leer. Darum bei Nichterreichbarkeit nach 60 s erneut
+    /// versuchen (ein Abruf je Minute, bis das Dashboard antwortet).
+    private func scheduleRetry() {
+        guard retryTimer == nil else { return }
+        let t = Timer(timeInterval: 60, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.retryTimer = nil
+            if self.running { self.poll() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
+    }
+
+    private func cancelRetry() {
+        retryTimer?.invalidate()
+        retryTimer = nil
     }
 
     private static func text(for error: KIVersionsError) -> String {
