@@ -566,6 +566,8 @@ struct ClaudeUsagePanel: View {
     @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var configStore: ConfigStore
 
+    private var showVersions: Bool { configStore.config.showKIVersions }
+
     private var block: UsageBlock? { claude.snapshot.activeBlock }
 
     private var blockTokens: Int { block?.totals.billableTokens ?? 0 }
@@ -609,6 +611,7 @@ struct ClaudeUsagePanel: View {
             ForEach(claude.profileUsages) { usage in
                 profileRow(usage)
             }
+            if showVersions { KIVersionRingsView() }
         }
     }
 
@@ -720,10 +723,12 @@ struct ClaudeUsagePanel: View {
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textPrimary)
             }
-            claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
-                .frame(height: 5)
-            ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
-                claudeLimitRowView(row)
+            if !showVersions {
+                claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
+                    .frame(height: 5)
+                ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
+                    claudeLimitRowView(row)
+                }
             }
             HStack(spacing: 5) {
                 if let block = snapshot.activeBlock {
@@ -811,9 +816,13 @@ struct ClaudeUsagePanel: View {
                 }
                 Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(claudeLimitRows(for: claude.snapshot)) { row in
-                    claudeLimitRowView(row)
+            if showVersions {
+                KIVersionRingsView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(claudeLimitRows(for: claude.snapshot)) { row in
+                        claudeLimitRowView(row)
+                    }
                 }
             }
         }
