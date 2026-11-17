@@ -99,6 +99,14 @@ public struct AppConfig: Codable, Equatable {
     /// Chats untouched for longer than this many hours drop off the list.
     public var claudeSessionOpenHours: Double = 12
 
+    /// Mountpunkt eines APFS-Volumes im Boot-Container (z. B.
+    /// "/Volumes/Sources"), dessen Eigenverbrauch der SSD-Ring als zweites
+    /// Segment zeigt. Leer = aus.
+    public var diskHighlightVolume = ""
+    /// Weitere Volumes (z. B. "/Volumes/OneTB"), je eines als eigener Ring im
+    /// System-Panel, nur solange gemountet.
+    public var extraDiskVolumes: [String] = []
+
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
     public var weatherLongitude: Double = 13.405
@@ -159,6 +167,8 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionRows = try c.decodeIfPresent(Int.self, forKey: .claudeSessionRows) ?? d.claudeSessionRows
         claudeSessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .claudeSessionActiveSeconds) ?? d.claudeSessionActiveSeconds
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
+        diskHighlightVolume = try c.decodeIfPresent(String.self, forKey: .diskHighlightVolume) ?? d.diskHighlightVolume
+        extraDiskVolumes = try c.decodeIfPresent([String].self, forKey: .extraDiskVolumes) ?? d.extraDiskVolumes
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName
