@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker, bamboo
 
     var title: String {
         switch self {
@@ -24,6 +24,7 @@ private enum WidgetToggle: Int, CaseIterable {
         case .claudeSessions: return "Claude-Chats"
         case .calendar: return "Termine"
         case .docker: return "Docker (im System-Panel)"
+        case .bamboo: return "Bamboo-Laufzeiten"
         }
     }
 }
@@ -39,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let claudeSessionsModel = ClaudeSessionsModel()
     private let agendaModel = AgendaModel()
     private let dockerModel = DockerModel()
+    private let bambooModel = BambooModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -79,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(claudeSessionsModel)
             .environmentObject(agendaModel)
             .environmentObject(dockerModel)
+            .environmentObject(bambooModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -128,7 +131,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             claudeModel.stop()
         }
-        if configStore.config.showClaudeSessions {
+        // Bamboo hat Vorrang vor den Chats: beide teilen sich einen Platz.
+        if configStore.config.showBamboo {
+            bambooModel.start(config: configStore.config)
+        } else {
+            bambooModel.stop()
+        }
+        if configStore.config.showClaudeSessions && !configStore.config.showBamboo {
             claudeSessionsModel.start(
                 profiles: configStore.config.claudeProfiles,
                 options: ClaudeSessionReader.Options(
@@ -169,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .claudeSessions: return configStore.config.showClaudeSessions
         case .calendar: return configStore.config.showCalendar
         case .docker: return configStore.config.showDocker
+        case .bamboo: return configStore.config.showBamboo
         }
     }
 
@@ -181,9 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: configStore.config.showLauncher = value
         case .weather: configStore.config.showWeather = value
         case .claude: configStore.config.showClaudeUsage = value
-        case .claudeSessions: configStore.config.showClaudeSessions = value
+        case .claudeSessions:
+            configStore.config.showClaudeSessions = value
+            if value { configStore.config.showBamboo = false }
         case .calendar: configStore.config.showCalendar = value
         case .docker: configStore.config.showDocker = value
+        case .bamboo:
+            configStore.config.showBamboo = value
+            if value { configStore.config.showClaudeSessions = false }
         }
     }
 

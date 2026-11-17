@@ -51,11 +51,16 @@ struct DashboardView: View {
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
                     || configStore.config.showClaudeUsage
+                    || configStore.config.showBamboo
                     || configStore.config.showClaudeSessions {
                     VStack(spacing: 16) {
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
-                        if configStore.config.showClaudeSessions { ClaudeSessionsPanel() }
+                        if configStore.config.showBamboo {
+                            BambooPanel()
+                        } else if configStore.config.showClaudeSessions {
+                            ClaudeSessionsPanel()
+                        }
                         if configStore.config.showVolume { VolumePanel() }
                     }
                     .frame(maxWidth: geo.size.width * 0.26)
