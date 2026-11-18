@@ -84,6 +84,60 @@ final class StatsModel: ObservableObject {
         timer?.invalidate()
         timer = nil
     }
+
+    /// Setzt die Volume-Pfade fuer Highlight und Zusatz-Ringe. Aufruf auf
+    /// Main, wie der Timer, damit `SystemStats` nicht parallel laeuft.
+    func setVolumePaths(highlight: String, extras: [String]) {
+        stats.highlightVolumePath = highlight
+        stats.extraVolumePaths = extras
+    }
+}
+
+// MARK: - Docker
+
+/// Docker-Werte fuer den Ring im System-Panel. Gelesen wird auf einer eigenen
+/// seriellen Queue (der Socket-Zugriff blockiert), veroeffentlicht auf Main.
+final class DockerModel: ObservableObject {
+    @Published var usage: DockerUsage?
+
+    private let queue = DispatchQueue(label: "xeneonedge.docker", qos: .utility)
+    private var timer: Timer?
+    private var reader = DockerStatsReader()
+    private var readInFlight = false
+
+    /// Leerer `diskImagePath` nimmt den Default des Readers. Wiederholte
+    /// Aufrufe starten den Timer neu, damit ein geaenderter Pfad greift.
+    func start(diskImagePath: String) {
+        timer?.invalidate()
+        reader = diskImagePath.isEmpty
+            ? DockerStatsReader()
+            : DockerStatsReader(diskImagePath: diskImagePath)
+        poll()
+        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        usage = nil
+    }
+
+    private func poll() {
+        guard !readInFlight else { return }
+        readInFlight = true
+        let reader = self.reader
+        queue.async { [weak self] in
+            let result = reader.read()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.readInFlight = false
+                // Nach stop() ankommende Ergebnisse verwerfen.
+                if self.timer != nil { self.usage = result }
+            }
+        }
+    }
 }
 
 // MARK: - Media
@@ -493,5 +547,141 @@ final class WeatherModel: ObservableObject {
             info.isAvailable = true
             DispatchQueue.main.async { self.info = info }
         }.resume()
+    }
+}
+
+// MARK: - KI-Dashboard Versionen
+
+/// Versionsringe aus dem lokalen KI-Dashboard. Abruf beim Start und danach zu
+/// den festen Slots von `KIVersionsSchedule` (einmaliger Timer, nach jedem
+/// Feuern neu geplant). Das Ergebnis wird auf Main veroeffentlicht.
+final class KIVersionsModel: ObservableObject {
+    @Published var versions: [KIVersionRing] = []
+    @Published var lastSuccess: Date?
+    @Published var errorText: String?
+
+    private let schedule = KIVersionsSchedule()
+    private var reader: KIVersionsReader?
+    private var key: String?
+    private var timer: Timer?
+    private var retryTimer: Timer?
+    private var nextRun: Date?
+    private var fetchInFlight = false
+    private var running = false
+    private var wakeObserver: NSObjectProtocol?
+
+    /// Wiederholte Aufrufe mit gleicher URL und Projekten tun nichts; eine
+    /// Aenderung ersetzt Reader und Timer.
+    func start(baseURL: String, projects: [String]) {
+        let newKey = baseURL + "|" + projects.joined(separator: ",")
+        if running, newKey == key { return }
+        timer?.invalidate()
+        timer = nil
+        cancelRetry()
+        key = newKey
+        reader = KIVersionsReader(baseURL: baseURL, projects: projects)
+        fetchInFlight = false // Ergebnis des alten Readers wird verworfen
+        running = true
+        if wakeObserver == nil {
+            wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.didWake() }
+        }
+        poll()
+        scheduleNext()
+    }
+
+    func stop() {
+        running = false
+        key = nil
+        reader = nil
+        fetchInFlight = false
+        timer?.invalidate()
+        timer = nil
+        cancelRetry()
+        nextRun = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
+        versions = []
+        lastSuccess = nil
+        errorText = nil
+    }
+
+    private func scheduleNext() {
+        timer?.invalidate()
+        let fire = schedule.naechsterLauf(nach: Date())
+        nextRun = fire
+        let t = Timer(fire: fire, interval: 0, repeats: false) { [weak self] _ in
+            guard let self, self.running else { return }
+            self.poll()
+            self.scheduleNext()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// Ein im Schlaf faellig gewordener Lauf wird einmal nachgeholt.
+    private func didWake() {
+        guard running else { return }
+        if let nextRun, nextRun <= Date() { poll() }
+        scheduleNext()
+    }
+
+    private func poll() {
+        guard running, !fetchInFlight, let reader else { return }
+        fetchInFlight = true
+        reader.fetch { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // Nur Ergebnisse des aktuellen Readers zaehlen; nach stop()
+                // oder Austausch werden sie verworfen.
+                guard self.running, self.reader === reader else { return }
+                self.fetchInFlight = false
+                switch result {
+                case .success(let rings):
+                    self.versions = rings
+                    self.lastSuccess = Date()
+                    self.errorText = nil
+                    self.cancelRetry()
+                case .failure(let error):
+                    self.errorText = Self.text(for: error)
+                    if case .unreachable = error {
+                        self.scheduleRetry()
+                    } else {
+                        self.cancelRetry()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Startet die App vor dem Dashboard, bliebe das Panel bis zum naechsten
+    /// Zeitplan-Slot leer. Darum bei Nichterreichbarkeit nach 60 s erneut
+    /// versuchen (ein Abruf je Minute, bis das Dashboard antwortet).
+    private func scheduleRetry() {
+        guard retryTimer == nil else { return }
+        let t = Timer(timeInterval: 60, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.retryTimer = nil
+            if self.running { self.poll() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
+    }
+
+    private func cancelRetry() {
+        retryTimer?.invalidate()
+        retryTimer = nil
+    }
+
+    private static func text(for error: KIVersionsError) -> String {
+        switch error {
+        case .http(let code, _): return "KI-Dashboard meldet HTTP \(code)"
+        case .invalidResponse: return "KI-Dashboard: ungueltige Antwort"
+        case .invalidURL: return "KI-Dashboard: ungueltige Adresse"
+        case .unreachable: return "KI-Dashboard nicht erreichbar"
+        }
     }
 }

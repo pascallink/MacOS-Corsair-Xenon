@@ -10,7 +10,7 @@ import XeneonEdgeKit
 
 /// The dashboard panels the user can switch on and off from the menu bar.
 private enum WidgetToggle: Int, CaseIterable {
-    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar
+    case clock = 1, stats, media, volume, launcher, weather, claude, claudeSessions, calendar, docker, kiVersions, bamboo
 
     var title: String {
         switch self {
@@ -23,6 +23,9 @@ private enum WidgetToggle: Int, CaseIterable {
         case .claude: return "Claude-Nutzung"
         case .claudeSessions: return "Claude-Chats"
         case .calendar: return "Termine"
+        case .docker: return "Docker (im System-Panel)"
+        case .kiVersions: return "KI-Versionen statt Token-Balken"
+        case .bamboo: return "Bamboo-Laufzeiten"
         }
     }
 }
@@ -37,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     private let claudeModel = ClaudeUsageModel()
     private let claudeSessionsModel = ClaudeSessionsModel()
     private let agendaModel = AgendaModel()
+    private let dockerModel = DockerModel()
+    private let kiVersionsModel = KIVersionsModel()
+    private let bambooModel = BambooModel()
 
     private let touchDriver = TouchDriver()
     private var dashboard: DashboardWindowController!
@@ -76,6 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
             .environmentObject(claudeModel)
             .environmentObject(claudeSessionsModel)
             .environmentObject(agendaModel)
+            .environmentObject(dockerModel)
+            .environmentObject(kiVersionsModel)
+            .environmentObject(bambooModel)
         dashboard = DashboardWindowController(content: dashboardView)
 
         statsModel.start()
@@ -116,6 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
     /// Starts or stops the background work behind the optional panels, so a
     /// switched-off widget costs nothing.
     private func applyWidgetServices() {
+        statsModel.setVolumePaths(highlight: configStore.config.diskHighlightVolume,
+                                  extras: configStore.config.extraDiskVolumes)
         if configStore.config.showClaudeUsage {
             claudeModel.start(profiles: configStore.config.claudeProfiles,
                               cloudGistID: configStore.config.cloudGistID,
@@ -123,7 +134,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         } else {
             claudeModel.stop()
         }
-        if configStore.config.showClaudeSessions {
+        if configStore.config.showClaudeUsage && configStore.config.showKIVersions {
+            kiVersionsModel.start(baseURL: configStore.config.kiDashboardURL,
+                                  projects: configStore.config.kiDashboardProjects)
+        } else {
+            kiVersionsModel.stop()
+        }
+        // Bamboo hat Vorrang vor den Chats: beide teilen sich einen Platz.
+        if configStore.config.showBamboo {
+            bambooModel.start(config: configStore.config)
+        } else {
+            bambooModel.stop()
+        }
+        if configStore.config.showClaudeSessions && !configStore.config.showBamboo {
             claudeSessionsModel.start(
                 profiles: configStore.config.claudeProfiles,
                 options: ClaudeSessionReader.Options(
@@ -139,6 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
                                longitude: configStore.config.weatherLongitude)
         } else {
             weatherModel.stop()
+        }
+        if configStore.config.showDocker {
+            dockerModel.start(diskImagePath: configStore.config.dockerDiskImagePath)
+        } else {
+            dockerModel.stop()
         }
         if configStore.config.showCalendar {
             agendaModel.start()
@@ -156,8 +184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: return configStore.config.showLauncher
         case .weather: return configStore.config.showWeather
         case .claude: return configStore.config.showClaudeUsage
-        case .claudeSessions: return configStore.config.showClaudeSessions
+        case .claudeSessions: return configStore.config.showClaudeSessions && !configStore.config.showBamboo
         case .calendar: return configStore.config.showCalendar
+        case .docker: return configStore.config.showDocker
+        case .kiVersions: return configStore.config.showKIVersions
+        case .bamboo: return configStore.config.showBamboo
         }
     }
 
@@ -170,8 +201,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, TouchDriverDelegate {
         case .launcher: configStore.config.showLauncher = value
         case .weather: configStore.config.showWeather = value
         case .claude: configStore.config.showClaudeUsage = value
-        case .claudeSessions: configStore.config.showClaudeSessions = value
+        case .claudeSessions:
+            configStore.config.showClaudeSessions = value
+            if value { configStore.config.showBamboo = false }
         case .calendar: configStore.config.showCalendar = value
+        case .docker: configStore.config.showDocker = value
+        case .kiVersions: configStore.config.showKIVersions = value
+        case .bamboo:
+            configStore.config.showBamboo = value
+            if value { configStore.config.showClaudeSessions = false }
         }
     }
 

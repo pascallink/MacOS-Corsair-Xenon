@@ -15,6 +15,8 @@ enum EdgeTheme {
     static let accent = Color(red: 0.93, green: 0.79, blue: 0.12) // Corsair yellow
     static let good = Color(red: 0.35, green: 0.80, blue: 0.45)
     static let warn = Color(red: 0.95, green: 0.55, blue: 0.20)
+    /// Zweites Ringsegment (Eigenverbrauch eines Volumes), klar von accent getrennt.
+    static let highlight = Color(red: 0.35, green: 0.62, blue: 0.95)
     static let critical = Color(red: 0.92, green: 0.30, blue: 0.30)
     static let textPrimary = Color.white.opacity(0.92)
     static let textSecondary = Color.white.opacity(0.55)
@@ -30,6 +32,10 @@ struct DashboardView: View {
     @EnvironmentObject var claudeSessions: ClaudeSessionsModel
     @EnvironmentObject var agenda: AgendaModel
 
+    private var showsVersionRings: Bool {
+        configStore.config.showClaudeUsage && configStore.config.showKIVersions
+    }
+
     var body: some View {
         GeometryReader { geo in
             let compact = geo.size.width < 1600
@@ -44,19 +50,28 @@ struct DashboardView: View {
                     }
                     .frame(maxWidth: geo.size.width * (compact ? 0.30 : 0.24))
                 }
-                if configStore.config.showStats {
-                    StatsPanel()
+                // Bamboo steht unter dem System-Panel, damit die rechte Spalte
+                // den Versionsringen die volle Hoehe laesst.
+                if configStore.config.showStats || configStore.config.showBamboo {
+                    VStack(spacing: 16) {
+                        if configStore.config.showStats { StatsPanel() }
+                        if configStore.config.showBamboo { BambooPanel() }
+                    }
                 }
                 if configStore.config.showMedia || configStore.config.showVolume
                     || configStore.config.showClaudeUsage
-                    || configStore.config.showClaudeSessions {
+                    || (configStore.config.showClaudeSessions && !configStore.config.showBamboo) {
                     VStack(spacing: 16) {
                         if configStore.config.showMedia { MediaPanel() }
                         if configStore.config.showClaudeUsage { ClaudeUsagePanel() }
-                        if configStore.config.showClaudeSessions { ClaudeSessionsPanel() }
+                        if configStore.config.showClaudeSessions && !configStore.config.showBamboo {
+                            ClaudeSessionsPanel()
+                        }
                         if configStore.config.showVolume { VolumePanel() }
                     }
-                    .frame(maxWidth: geo.size.width * 0.26)
+                    // Die Versionsringe tragen ihre Beschriftung rechts neben
+                    // dem Ring und brauchen deshalb mehr Breite.
+                    .frame(maxWidth: geo.size.width * (showsVersionRings ? 0.40 : 0.26))
                 }
                 if configStore.config.showLauncher {
                     LauncherPanel()
@@ -149,11 +164,13 @@ struct ClockPanel: View {
 
 struct StatsPanel: View {
     @EnvironmentObject var stats: StatsModel
+    @EnvironmentObject var docker: DockerModel
+    @EnvironmentObject var configStore: ConfigStore
 
     var body: some View {
         Panel(title: "System", systemImage: "gauge.medium") {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 24) {
+                HStack(spacing: stats.snapshot.extraDisks.isEmpty && dockerUsage == nil ? 24 : 14) {
                     GaugeView(label: "CPU",
                               value: stats.snapshot.cpuUsage,
                               text: String(format: "%.0f%%", stats.snapshot.cpuUsage * 100))
@@ -162,7 +179,25 @@ struct StatsPanel: View {
                               text: ByteFormatter.size(stats.snapshot.memoryUsed))
                     GaugeView(label: "SSD · \(ByteFormatter.size(stats.snapshot.disk.available)) frei",
                               value: stats.snapshot.disk.usage,
-                              text: String(format: "%.0f%%", stats.snapshot.disk.usage * 100))
+                              text: String(format: "%.0f%%", stats.snapshot.disk.usage * 100),
+                              segment: stats.snapshot.diskHighlight?.usage.usage,
+                              segmentColor: EdgeTheme.highlight,
+                              legend: stats.snapshot.diskHighlight.map {
+                                  "\($0.name) \(ByteFormatter.size($0.usage.used))"
+                              })
+                    ForEach(Array(stats.snapshot.extraDisks.enumerated()), id: \.offset) { _, disk in
+                        GaugeView(label: "\(disk.name) · \(ByteFormatter.size(disk.usage.available)) frei",
+                                  value: disk.usage.usage,
+                                  text: String(format: "%.0f%%", disk.usage.usage * 100))
+                    }
+                    if let usage = dockerUsage {
+                        DualGaugeView(label: "Docker",
+                                      outer: usage.memoryUsage,
+                                      inner: usage.diskUsage,
+                                      text: String(format: "%.0f%%", usage.memoryUsage * 100),
+                                      outerDetail: "RAM \(ByteFormatter.size(usage.memoryUsed))/\(ByteFormatter.size(usage.memoryTotal))",
+                                      innerDetail: "Disk \(ByteFormatter.size(usage.diskUsed))/\(ByteFormatter.size(usage.diskTotal))")
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         NetworkRow(symbol: "arrow.down",
                                    text: ByteFormatter.rate(stats.snapshot.networkRxBytesPerSecond))
@@ -177,6 +212,63 @@ struct StatsPanel: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 70)
             }
+        }
+    }
+}
+
+extension StatsPanel {
+    /// Docker-Werte nur, wenn der Ring an ist und Docker antwortet.
+    var dockerUsage: DockerUsage? {
+        configStore.config.showDocker ? docker.usage : nil
+    }
+}
+
+/// Ring mit zwei konzentrischen Spuren: aussen RAM, innen Disk-Image.
+struct DualGaugeView: View {
+    let label: String
+    let outer: Double // 0...1
+    let inner: Double // 0...1
+    let text: String
+    let outerDetail: String
+    let innerDetail: String
+
+    private func track(_ value: Double, color: Color, inset: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(Color.white.opacity(0.10), style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(135))
+            Circle()
+                .trim(from: 0, to: 0.75 * min(max(value, 0), 1))
+                .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(135))
+                .animation(.easeOut(duration: 0.4), value: value)
+        }
+        .padding(inset)
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                track(outer, color: EdgeTheme.accent, inset: 0)
+                track(inner, color: EdgeTheme.highlight, inset: 13)
+                Text(text)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(EdgeTheme.textPrimary)
+                    .minimumScaleFactor(0.5)
+            }
+            .frame(width: 110, height: 110)
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(EdgeTheme.textSecondary)
+            VStack(spacing: 1) {
+                Text(outerDetail).foregroundColor(EdgeTheme.accent)
+                Text(innerDetail).foregroundColor(EdgeTheme.highlight)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
         }
     }
 }
@@ -202,6 +294,12 @@ struct GaugeView: View {
     let label: String
     let value: Double // 0...1
     let text: String
+    /// Optionales zweites Segment: Anteil 0...1 vom Ringanfang, ueber dem
+    /// Gesamt-Fuellstand gezeichnet.
+    var segment: Double? = nil
+    var segmentColor: Color = EdgeTheme.highlight
+    /// Kleine Zeile unter dem Label, in der Segmentfarbe.
+    var legend: String? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -215,6 +313,13 @@ struct GaugeView: View {
                     .stroke(EdgeTheme.accent, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                     .rotationEffect(.degrees(135))
                     .animation(.easeOut(duration: 0.4), value: value)
+                if let segment {
+                    Circle()
+                        .trim(from: 0, to: 0.75 * min(max(segment, 0), min(max(value, 0), 1)))
+                        .stroke(segmentColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                        .rotationEffect(.degrees(135))
+                        .animation(.easeOut(duration: 0.4), value: segment)
+                }
                 Text(text)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -225,6 +330,11 @@ struct GaugeView: View {
             Text(label)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(EdgeTheme.textSecondary)
+            if let legend {
+                Text(legend)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(segmentColor)
+            }
         }
     }
 }
@@ -469,6 +579,8 @@ struct ClaudeUsagePanel: View {
     @EnvironmentObject var claude: ClaudeUsageModel
     @EnvironmentObject var configStore: ConfigStore
 
+    private var showVersions: Bool { configStore.config.showKIVersions }
+
     private var block: UsageBlock? { claude.snapshot.activeBlock }
 
     private var blockTokens: Int { block?.totals.billableTokens ?? 0 }
@@ -492,11 +604,18 @@ struct ClaudeUsagePanel: View {
     }
 
     var body: some View {
-        Panel(title: "Claude", systemImage: "gauge.with.needle") {
-            if claude.isMultiProfile {
-                profileList
-            } else {
-                singleProfile
+        if showVersions {
+            // Nur die Versionsringe, ohne Session-Teil.
+            Panel(title: "Fix-Versionen", systemImage: "chart.pie") {
+                KIVersionRingsView()
+            }
+        } else {
+            Panel(title: "Claude", systemImage: "gauge.with.needle") {
+                if claude.isMultiProfile {
+                    profileList
+                } else {
+                    singleProfile
+                }
             }
         }
     }
@@ -623,10 +742,12 @@ struct ClaudeUsagePanel: View {
                     .monospacedDigit()
                     .foregroundColor(EdgeTheme.textPrimary)
             }
-            claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
-                .frame(height: 5)
-            ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
-                claudeLimitRowView(row)
+            if !showVersions {
+                claudeBar(fraction: max(0, min(fraction ?? elapsed, 1)), color: rowColor(fraction))
+                    .frame(height: 5)
+                ForEach(claudeLimitRows(for: snapshot).dropFirst()) { row in
+                    claudeLimitRowView(row)
+                }
             }
             HStack(spacing: 5) {
                 if let block = snapshot.activeBlock {

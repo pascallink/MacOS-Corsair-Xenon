@@ -31,6 +31,15 @@ public struct LauncherItem: Codable, Equatable, Identifiable {
     }
 }
 
+/// Dekodiert einen Plan-Eintrag, ohne bei Fehlern zu werfen (plan ist dann nil).
+private struct LossyBambooPlan: Decodable {
+    let plan: BambooPlan?
+
+    init(from decoder: Decoder) throws {
+        plan = try? BambooPlan(from: decoder)
+    }
+}
+
 public struct AppConfig: Codable, Equatable {
     // Touch
     public var touchEnabled = true
@@ -98,6 +107,45 @@ public struct AppConfig: Codable, Equatable {
     public var claudeSessionActiveSeconds: Double = 300
     /// Chats untouched for longer than this many hours drop off the list.
     public var claudeSessionOpenHours: Double = 12
+    /// Panel "Claude" zeigt statt der Token-Balken die Versionsringe aus dem
+    /// KI-Dashboard; aus = alte Balken. Die Token-Budgets bleiben unveraendert.
+    public var showKIVersions = true
+    /// Basis-URL des lokalen KI-Dashboards. Default ist der Node-Betrieb
+    /// (:3000); die Docker-Variante laeuft auf :3001.
+    public var kiDashboardURL = "http://127.0.0.1:3000"
+    /// Jira-Projekte, deren Fix-Versionen als Ringe erscheinen (Reihenfolge
+    /// wie hier); leer = alle.
+    public var kiDashboardProjects: [String] = ["DBREFI", "DBCUBE"]
+
+    /// Panel "Bamboo-Laufzeiten": durchschnittliche Laufzeit und Erfolgsquote
+    /// je Plan. Teilt sich den Platz mit `showClaudeSessions`, Bamboo hat
+    /// Vorrang (setzt die App um).
+    public var showBamboo = true
+    /// Basis-URL des Bamboo-Servers (intern nur per http erreichbar). Das
+    /// Token kommt aus der Keychain, nie aus dieser Datei.
+    public var bambooBaseURL = "http://bamboo.inxire.com"
+    /// Ausgewertete Plaene, in Anzeigereihenfolge.
+    public var bambooPlans: [BambooPlan] = BambooPlan.defaultPlans
+    /// Builds der Branch-Plaene mitzaehlen.
+    public var bambooIncludeBranches = true
+    /// Zeitfenster der Auswertung in Tagen.
+    public var bambooWindowDays = 14
+    /// Abrufintervall in Minuten; die App klemmt auf >= 5.
+    public var bambooRefreshMinutes: Double = 60
+
+    /// Mountpunkt eines APFS-Volumes im Boot-Container (z. B.
+    /// "/Volumes/Sources"), dessen Eigenverbrauch der SSD-Ring als zweites
+    /// Segment zeigt. Leer = aus.
+    public var diskHighlightVolume = ""
+    /// Weitere Volumes (z. B. "/Volumes/OneTB"), je eines als eigener Ring im
+    /// System-Panel, nur solange gemountet.
+    public var extraDiskVolumes: [String] = []
+
+    /// Ring "Docker" im System-Panel (RAM der Container, Platz im Disk-Image).
+    /// Er erscheint nur, solange Docker laeuft.
+    public var showDocker = false
+    /// Pfad des Docker-Disk-Images; leer = Docker-Desktop-Default.
+    public var dockerDiskImagePath = ""
 
     // Weather (Open-Meteo, no API key required)
     public var weatherLatitude: Double = 52.52
@@ -159,6 +207,22 @@ public struct AppConfig: Codable, Equatable {
         claudeSessionRows = try c.decodeIfPresent(Int.self, forKey: .claudeSessionRows) ?? d.claudeSessionRows
         claudeSessionActiveSeconds = try c.decodeIfPresent(Double.self, forKey: .claudeSessionActiveSeconds) ?? d.claudeSessionActiveSeconds
         claudeSessionOpenHours = try c.decodeIfPresent(Double.self, forKey: .claudeSessionOpenHours) ?? d.claudeSessionOpenHours
+        showKIVersions = try c.decodeIfPresent(Bool.self, forKey: .showKIVersions) ?? d.showKIVersions
+        kiDashboardURL = try c.decodeIfPresent(String.self, forKey: .kiDashboardURL) ?? d.kiDashboardURL
+        kiDashboardProjects = try c.decodeIfPresent([String].self, forKey: .kiDashboardProjects) ?? d.kiDashboardProjects
+        showBamboo = try c.decodeIfPresent(Bool.self, forKey: .showBamboo) ?? d.showBamboo
+        bambooBaseURL = try c.decodeIfPresent(String.self, forKey: .bambooBaseURL) ?? d.bambooBaseURL
+        // Kaputte Plan-Eintraege (z. B. ohne key) fliegen einzeln raus; ein
+        // Typfehler beim ganzen Feld faellt auf den Default zurueck.
+        bambooPlans = (try? c.decodeIfPresent([LossyBambooPlan].self, forKey: .bambooPlans))?
+            .compactMap(\.plan) ?? d.bambooPlans
+        bambooIncludeBranches = try c.decodeIfPresent(Bool.self, forKey: .bambooIncludeBranches) ?? d.bambooIncludeBranches
+        bambooWindowDays = try c.decodeIfPresent(Int.self, forKey: .bambooWindowDays) ?? d.bambooWindowDays
+        bambooRefreshMinutes = try c.decodeIfPresent(Double.self, forKey: .bambooRefreshMinutes) ?? d.bambooRefreshMinutes
+        diskHighlightVolume = try c.decodeIfPresent(String.self, forKey: .diskHighlightVolume) ?? d.diskHighlightVolume
+        extraDiskVolumes = try c.decodeIfPresent([String].self, forKey: .extraDiskVolumes) ?? d.extraDiskVolumes
+        showDocker = try c.decodeIfPresent(Bool.self, forKey: .showDocker) ?? d.showDocker
+        dockerDiskImagePath = try c.decodeIfPresent(String.self, forKey: .dockerDiskImagePath) ?? d.dockerDiskImagePath
         weatherLatitude = try c.decodeIfPresent(Double.self, forKey: .weatherLatitude) ?? d.weatherLatitude
         weatherLongitude = try c.decodeIfPresent(Double.self, forKey: .weatherLongitude) ?? d.weatherLongitude
         weatherPlaceName = try c.decodeIfPresent(String.self, forKey: .weatherPlaceName) ?? d.weatherPlaceName

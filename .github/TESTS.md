@@ -27,6 +27,7 @@ gehoert zu genau einer Suite, Schnitt entlang der Verantwortung im Quellcode.
 
 | Suite | Quellen | Tests |
 | --- | --- | --- |
+| `BambooTests` | `Sources/XeneonEdgeKit/Bamboo/` (alle Dateien), `Config/AppConfig.swift` (Bamboo-Felder) | 30 |
 | `BitbucketClientTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketClient.swift`, `BitbucketCredentials.swift` | 11 |
 | `BitbucketOverviewTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketOverview.swift` | 17 |
 | `BitbucketParserTests` | `Sources/XeneonEdgeKit/Bitbucket/BitbucketResponseParser.swift` | 17 |
@@ -36,6 +37,8 @@ gehoert zu genau einer Suite, Schnitt entlang der Verantwortung im Quellcode.
 | `ClaudeSessionTests` | `Sources/XeneonEdgeKit/ClaudeUsage/ClaudeSessionReader.swift`, `ClaudeSessionModels.swift` | 18 |
 | `ClaudeUsageTests` | `Sources/XeneonEdgeKit/ClaudeUsage/ClaudeUsageReader.swift`, `ClaudeUsageModels.swift` | 26 |
 | `DDCServiceTests` | `Sources/XeneonEdgeKit/DDC/DDCServiceLocator.swift`, `DDCControl.swift` | 8 |
+| `DockerStatsTests` | `Sources/XeneonEdgeKit/Sensors/DockerStats.swift` | 12 |
+| `KIVersionsTests` | `Sources/XeneonEdgeKit/KIDashboard/*.swift` | 29 |
 | `TouchDriverTests` | `Sources/XeneonEdgeKit/Touch/TouchDriver.swift`, `TouchEventSink.swift` | 27 |
 | `TouchMappingTests` | `Sources/XeneonEdgeKit/Touch/TouchMapping.swift` | 15 |
 
@@ -47,6 +50,7 @@ je Datei, oder die Gesamtausgabe von `./Scripts/test.sh`.
 ```
 Tests/
   XeneonEdgeKitTests/
+    BambooTests.swift
     BitbucketClientTests.swift
     BitbucketOverviewTests.swift
     BitbucketParserTests.swift
@@ -56,6 +60,8 @@ Tests/
     ClaudeSessionTests.swift
     ClaudeUsageTests.swift
     DDCServiceTests.swift
+    DockerStatsTests.swift
+    KIVersionsTests.swift
     TouchDriverTests.swift
     TouchMappingTests.swift
 ```
